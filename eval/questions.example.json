@@ -1,0 +1,21 @@
+[
+  {
+    "url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+    "questions": [
+      {
+        "question": "In which year was the term retrieval-augmented generation introduced, and in what kind of publication?",
+        "reference": "It was introduced in 2020 in a research paper.",
+        "must_contain": ["2020 paper"]
+      },
+      {
+        "question": "How does RAG differ from relying only on an LLM's static training data?",
+        "reference": "RAG retrieves relevant text from external sources such as databases, documents or web sources before generating a response, instead of relying only on static training data.",
+        "must_contain": ["static training data"]
+      },
+      {
+        "question": "What is the capital of Australia?",
+        "answerable": false
+      }
+    ]
+  }
+]

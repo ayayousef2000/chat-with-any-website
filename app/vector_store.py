@@ -1,0 +1,132 @@
+"""Steps 6-7: store chunk vectors in Weaviate and retrieve candidates with hybrid (keyword + vector) search."""
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
+
+import weaviate
+from weaviate.classes.config import Configure, DataType, Property, Tokenization
+from weaviate.classes.data import DataObject
+from weaviate.classes.init import Auth
+from weaviate.classes.query import Filter, HybridFusion, MetadataQuery
+from weaviate.collections import Collection
+
+
+@dataclass(frozen=True)
+class StoredChunk:
+    """A chunk and its embedding, ready to be stored."""
+
+    text: str
+    heading: str
+    vector: Sequence[float]
+
+
+@dataclass(frozen=True)
+class RetrievedChunk:
+    """A chunk returned by a search."""
+
+    title: str
+    heading: str
+    text: str
+    chunk_index: int
+    score: float | None
+
+
+class WeaviateStore:
+    """Stores chunk vectors in Weaviate and searches them."""
+
+    def __init__(self, url: str, api_key: str, collection_name: str) -> None:
+        self._client = weaviate.connect_to_weaviate_cloud(
+            cluster_url=url,
+            auth_credentials=Auth.api_key(api_key),
+        )
+        self._collection = self._get_or_create_collection(collection_name)
+
+    def _get_or_create_collection(self, name: str) -> Collection[Any, Any]:
+        if self._client.collections.exists(name):
+            return self._client.collections.use(name)
+        return self._client.collections.create(
+            name,
+            properties=[
+                # FIELD tokenization keeps the whole URL as one token so filters match it exactly.
+                Property(name="url", data_type=DataType.TEXT, tokenization=Tokenization.FIELD),
+                Property(name="title", data_type=DataType.TEXT, index_searchable=False),
+                Property(name="heading", data_type=DataType.TEXT),
+                Property(name="chunk_index", data_type=DataType.INT),
+                Property(name="text", data_type=DataType.TEXT),
+            ],
+            # Vectors are computed by the application (Cohere), not by Weaviate.
+            vector_config=Configure.Vectors.self_provided(),
+        )
+
+    def replace_source(self, url: str, title: str, chunks: Sequence[StoredChunk]) -> None:
+        """Remove any chunks previously stored for this URL and insert the new ones."""
+        self._collection.data.delete_many(where=Filter.by_property("url").equal(url))
+        objects = [
+            DataObject(
+                properties={
+                    "url": url,
+                    "title": title,
+                    "heading": chunk.heading,
+                    "chunk_index": index,
+                    "text": chunk.text,
+                },
+                vector=list(chunk.vector),
+            )
+            for index, chunk in enumerate(chunks)
+        ]
+        result = self._collection.data.insert_many(objects)
+        if result.has_errors:
+            first_error = next(iter(result.errors.values()))
+            raise RuntimeError(f"Failed to store {len(result.errors)} chunk(s) in Weaviate: {first_error.message}")
+
+    def has_source(self, url: str) -> bool:
+        """Check whether any chunks are stored for a URL.
+
+        Args:
+            url: The normalized page address.
+
+        Returns:
+            ``True`` if at least one chunk exists.
+        """
+        response = self._collection.query.fetch_objects(
+            filters=Filter.by_property("url").equal(url),
+            limit=1,
+            return_properties=[],
+        )
+        return bool(response.objects)
+
+    def search(
+        self,
+        url: str,
+        query: str,
+        vector: Sequence[float],
+        limit: int,
+        alpha: float,
+    ) -> list[RetrievedChunk]:
+        """Hybrid search: BM25 on the text and heading blended with vector similarity (alpha=1 is vector only)."""
+        response = self._collection.query.hybrid(
+            query=query,
+            vector=list(vector),
+            alpha=alpha,
+            fusion_type=HybridFusion.RELATIVE_SCORE,
+            query_properties=["text", "heading"],
+            filters=Filter.by_property("url").equal(url),
+            limit=limit,
+            return_properties=["title", "heading", "text", "chunk_index"],
+            return_metadata=MetadataQuery(score=True),
+        )
+        return [
+            RetrievedChunk(
+                title=str(obj.properties["title"]),
+                heading=str(obj.properties.get("heading") or ""),
+                text=str(obj.properties["text"]),
+                chunk_index=int(obj.properties["chunk_index"]),
+                score=obj.metadata.score,
+            )
+            for obj in response.objects
+        ]
+
+    def close(self) -> None:
+        """Close the connection to Weaviate."""
+        self._client.close()

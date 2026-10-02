@@ -1,0 +1,20 @@
+# Local configuration
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+docs/
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+dist/
+htmlcov/
+eval/results*.json

@@ -1,0 +1,52 @@
+# Install once with: uv run pre-commit install
+# Hooks run before every commit; the commit is blocked if any of them fails.
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+        # The lockfile is generated and must be committed; it is legitimately larger than the limit.
+        exclude: ^uv\.lock$
+      - id: detect-private-key
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Secrets: scans the staged changes for API keys, tokens and credentials.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  # Conventional Commits: type(scope): description
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert]
+
+  - repo: local
+    hooks:
+      - id: block-env-files
+        name: block .env files
+        description: Environment files hold secrets and must never be committed (.env.example is fine).
+        language: fail
+        entry: Do not commit .env files. Keep secrets local; document variables in .env.example.
+        files: (^|/)\.env(\.(?!example$).+)?$
+
+      # Type-check, lint, format check and tests in one command.
+      - id: check
+        name: check (types, lint, format, tests)
+        language: system
+        entry: uv run poe check
+        pass_filenames: false
+        always_run: true
