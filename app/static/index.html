@@ -30,7 +30,11 @@
         Chatting with <a id="page-link" target="_blank" rel="noopener noreferrer"></a>
         <span id="page-meta" class="muted"></span>
       </span>
-      <button id="new-chat" type="button" class="secondary">New chat</button>
+      <div class="page-actions">
+        <button id="refresh-page" type="button" class="secondary" title="Fetch the page again for its latest version">Refresh</button>
+        <button id="forget-page" type="button" class="secondary" title="Delete the saved copy of this page">Delete data</button>
+        <button id="new-chat" type="button" class="secondary">New chat</button>
+      </div>
     </div>
 
     <section id="messages" role="log" aria-label="Conversation" aria-live="polite"></section>

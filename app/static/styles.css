@@ -200,9 +200,10 @@ button.link:hover:not(:disabled) { transform: none; box-shadow: none; }
 
 .page-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 8px 12px;
   font: 0.8rem var(--mono);
   background: var(--surface);
@@ -214,7 +215,9 @@ button.link:hover:not(:disabled) { transform: none; box-shadow: none; }
 }
 
 .page-bar[hidden] { display: none; }
-.page-bar-text { min-width: 0; overflow-wrap: anywhere; }
+.page-actions { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+#page-meta { white-space: nowrap; }
+.page-bar-text { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
 .page-bar a { color: var(--cite); font: 700 0.95rem var(--serif); text-underline-offset: 3px; }
 
 #messages {

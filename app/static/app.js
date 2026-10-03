@@ -13,6 +13,43 @@ function createElement(tag, className) {
   return element;
 }
 
+// An error response from the server, with its HTTP status.
+class HttpError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
+
+// "just now", "4 minutes ago", "2 hours ago"
+function formatAge(seconds) {
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(seconds / 3600);
+  return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+}
+
+// Tells the user when a page came from a saved copy; a freshly fetched page needs no message.
+function describeLoad(result) {
+  if (!result.reused) return "";
+  return `Loaded "${result.title}" from a saved copy (loaded ${formatAge(result.age_seconds)}). Use Refresh for the latest version.`;
+}
+
+// Asks a question. If the saved copy of the page is gone (it expired or was deleted), loads the page again and
+// asks once more. `post(path, payload)` sends a request and rejects with an HttpError on failure.
+async function askWithReload(post, url, question, onReload) {
+  try {
+    return await post("/api/ask", { url, question });
+  } catch (error) {
+    if (!(error instanceof HttpError) || error.status !== 404) throw error;
+  }
+  onReload();
+  await post("/api/ingest", { url });
+  return post("/api/ask", { url, question });
+}
+
 // Only absolute http(s) addresses may become links.
 function safeUrl(value) {
   return /^https?:\/\/[^\s]+$/i.test(value) ? value : null;
@@ -227,6 +264,8 @@ function init() {
   const ingestButton = document.getElementById("ingest-button");
   const askButton = document.getElementById("ask-button");
   const newChatButton = document.getElementById("new-chat");
+  const refreshButton = document.getElementById("refresh-page");
+  const forgetButton = document.getElementById("forget-page");
   const statusEl = document.getElementById("status");
   const messagesEl = document.getElementById("messages");
   const pageBar = document.getElementById("page-bar");
@@ -247,6 +286,8 @@ function init() {
     urlInput.disabled = busy;
     ingestButton.disabled = busy;
     newChatButton.disabled = busy;
+    refreshButton.disabled = busy;
+    forgetButton.disabled = busy;
     questionInput.disabled = busy || page === null;
     askButton.disabled = busy || page === null;
   }
@@ -343,19 +384,18 @@ function init() {
     return element;
   }
 
-  async function postJson(path, payload) {
-    const response = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+  async function request(path, options) {
+    const response = await fetch(path, options);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join("; ") : data.detail;
-      throw new Error(detail || `Request failed with status ${response.status}`);
+      throw new HttpError(detail || `Request failed with status ${response.status}`, response.status);
     }
     return data;
   }
+
+  const postJson = (path, payload) =>
+    request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 
   ingestForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -366,7 +406,7 @@ function init() {
       urlInput.value = result.url;
       showPage({ url: result.url, title: result.title, chunks: result.chunk_count });
       showEmptyState();
-      setStatus("");
+      setStatus(describeLoad(result));
     } catch (error) {
       // The previous page, if any, stays loaded and visible in the bar above the conversation.
       const kept = page ? ` You are still chatting with "${page.title}".` : "";
@@ -388,7 +428,9 @@ function init() {
     setBusy(true);
     setStatus("Thinking…");
     try {
-      const result = await postJson("/api/ask", { url: page.url, question });
+      const result = await askWithReload(postJson, page.url, question, () =>
+        setStatus("The saved copy of the page expired. Loading it again…"),
+      );
       typing.remove();
       addAnswer(result.answer, result.sources);
     } catch (error) {
@@ -399,6 +441,45 @@ function init() {
       setStatus("");
       setBusy(false);
       questionInput.focus();
+    }
+  });
+
+  refreshButton.addEventListener("click", async () => {
+    if (!page) return;
+    setBusy(true);
+    setStatus("Fetching the page again…");
+    try {
+      const result = await postJson("/api/ingest", { url: page.url, refresh: true });
+      showPage({ url: result.url, title: result.title, chunks: result.chunk_count });
+      setStatus(`Refreshed "${result.title}".`);
+    } catch (error) {
+      setStatus(friendlyError(error), true);
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  forgetButton.addEventListener("click", async () => {
+    if (!page) return;
+    const question = `Delete the saved copy of "${page.title}"? Anyone using this page will load it again on their next question.`;
+    if (!window.confirm(question)) return;
+    setBusy(true);
+    try {
+      await request(`/api/page?url=${encodeURIComponent(page.url)}`, { method: "DELETE" });
+      const title = page.title;
+      page = null;
+      pageBar.hidden = true;
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // Ignore unavailable storage.
+      }
+      showEmptyState();
+      setStatus(`Deleted the saved copy of "${title}". Load a page to start again.`);
+    } catch (error) {
+      setStatus(friendlyError(error), true);
+    } finally {
+      setBusy(false);
     }
   });
 
@@ -423,7 +504,19 @@ function init() {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { safeUrl, plainText, friendlyError, renderInline, renderMarkdown, buildSources, buildAnswer };
+  module.exports = {
+    HttpError,
+    formatAge,
+    describeLoad,
+    askWithReload,
+    safeUrl,
+    plainText,
+    friendlyError,
+    renderInline,
+    renderMarkdown,
+    buildSources,
+    buildAnswer,
+  };
 }
 
 if (typeof document !== "undefined" && document.getElementById && document.getElementById("ingest-form")) {

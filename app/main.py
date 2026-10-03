@@ -7,7 +7,7 @@ from pathlib import Path
 
 import cohere.errors as cohere_errors
 import groq
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -15,6 +15,7 @@ from weaviate import exceptions as weaviate_exceptions
 
 from app.config import get_settings
 from app.errors import AppError
+from app.janitor import Janitor
 from app.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
@@ -49,11 +50,19 @@ DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Create the pipeline on startup and close its connections on shutdown."""
-    pipeline = Pipeline(get_settings())
+    settings = get_settings()
+    pipeline = Pipeline(settings)
+    try:
+        pipeline.reconcile()
+    except Exception:
+        logger.exception("Could not compare stored pages with their usage records")
+    janitor = Janitor(pipeline.cleanup, settings.cleanup_interval_seconds)
+    janitor.start()
     app.state.pipeline = pipeline
     try:
         yield
     finally:
+        janitor.stop()
         pipeline.close()
 
 
@@ -65,14 +74,23 @@ class IngestRequest(BaseModel):
     """Request body for loading a page."""
 
     url: str = Field(min_length=1, max_length=2048)
+    refresh: bool = False
 
 
 class IngestResponse(BaseModel):
-    """Result of loading a page."""
+    """Result of loading a page. ``reused`` means a stored copy, ``age_seconds`` old, was used."""
 
     url: str
     title: str
     chunk_count: int
+    reused: bool
+    age_seconds: int
+
+
+class ForgetResponse(BaseModel):
+    """Result of deleting a stored page."""
+
+    deleted: bool
 
 
 class AskRequest(BaseModel):
@@ -155,8 +173,20 @@ def index() -> FileResponse:
 @app.post("/api/ingest")
 def ingest(body: IngestRequest, request: Request) -> IngestResponse:
     """Fetch, clean, chunk, embed and store a page."""
-    result = request.app.state.pipeline.ingest(body.url)
-    return IngestResponse(url=result.url, title=result.title, chunk_count=result.chunk_count)
+    result = request.app.state.pipeline.ingest(body.url, refresh=body.refresh)
+    return IngestResponse(
+        url=result.url,
+        title=result.title,
+        chunk_count=result.chunk_count,
+        reused=result.reused,
+        age_seconds=result.age_seconds,
+    )
+
+
+@app.delete("/api/page")
+def forget(request: Request, url: str = Query(min_length=1, max_length=2048)) -> ForgetResponse:
+    """Delete the stored copy of a page."""
+    return ForgetResponse(deleted=request.app.state.pipeline.forget(url))
 
 
 @app.post("/api/ask")

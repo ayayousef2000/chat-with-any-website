@@ -78,7 +78,8 @@ The browser loads the page and the resources it requests, so only enable this wh
 
 | Method | Path | Body | Description |
 |---|---|---|---|
-| `POST` | `/api/ingest` | `{"url": "..."}` | Fetches, cleans, chunks, embeds and stores a page |
+| `POST` | `/api/ingest` | `{"url": "...", "refresh": false}` | Makes a page ready: reuses a stored copy if there is one, otherwise fetches, cleans, chunks, embeds and stores it |
+| `DELETE` | `/api/page?url=...` | none | Deletes the stored copy of a page |
 | `POST` | `/api/ask` | `{"url": "...", "question": "..."}` | Answers a question about a previously loaded page |
 
 Interactive API docs are available at http://127.0.0.1:8000/docs.
@@ -102,6 +103,11 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `HYBRID_ALPHA` | `0.65` | Blend of vector and keyword search (1 = vector only, 0 = keyword only) |
 | `BROWSER_FALLBACK` | `false` | Retry thin pages in a headless browser |
 | `MIN_TEXT_CHARS` | `500` | Text length below which the browser fallback is tried |
+| `PAGE_IDLE_MINUTES` | `15` | Minutes without a question after which a stored page is deleted |
+| `PAGE_MAX_AGE_HOURS` | `12` | Age after which a stored page is deleted even if it is in use |
+| `MAX_STORED_CHUNKS` | `60000` | Size limit; least recently used pages are removed first |
+| `CLEANUP_INTERVAL_SECONDS` | `60` | How often the background cleanup runs |
+| `STATE_DB_PATH` | `data/state.db` | SQLite file with the usage times of stored pages |
 
 If you change the embedding model, the dimension, the chunk settings or the code that builds chunks, use a new `WEAVIATE_COLLECTION` name, because vectors and chunks stored in an existing collection won't match the new settings (or re-load each page).
 
@@ -150,9 +156,23 @@ Work happens on branches created from `develop` and is merged into `develop` thr
 
 Released under the [MIT License](LICENSE).
 
+## How long pages are kept
+
+Each address is stored once, and everyone who asks about the same address shares that stored copy, so a second visitor does not wait or use more API calls. Different addresses are kept apart, and every question only searches the page it is about.
+
+A stored page is deleted when:
+
+- nobody has asked about it for `PAGE_IDLE_MINUTES` (15 by default), because the last visitor has left or stopped asking;
+- it is older than `PAGE_MAX_AGE_HOURS` (12 by default), even if it is still in use, so a changed website is picked up; or
+- the store holds more than `MAX_STORED_CHUNKS`, in which case the least recently used pages go first.
+
+A visitor can also press **Delete data** on the page bar to remove the copy at once, and **Refresh** to fetch the latest version. If a copy has expired while someone is still asking, the page loads again automatically on their next question.
+
+The times of use are kept in a small SQLite file (`STATE_DB_PATH`, git-ignored) and a background task checks them every `CLEANUP_INTERVAL_SECONDS`. This design is for a single server process; running several would need a shared store such as Redis.
+
 ## Privacy
 
-The text of every page you load is sent to Cohere (embeddings and reranking) and stored in your Weaviate database, and the excerpts used to answer a question are sent to Groq. Nothing is sent anywhere else. Answers can be wrong, so check the cited sources. Stored pages stay in Weaviate until you delete them.
+The text of every page you load is sent to Cohere (embeddings and reranking) and stored in your Weaviate database, and the excerpts used to answer a question are sent to Groq. Nothing is sent anywhere else. Answers can be wrong, so check the cited sources. Stored pages are deleted automatically as described above, or at once with **Delete data**.
 
 ## Limitations
 

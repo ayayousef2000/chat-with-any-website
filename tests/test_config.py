@@ -52,3 +52,20 @@ def test_top_k_must_not_exceed_retrieve_k(monkeypatch: pytest.MonkeyPatch) -> No
 def test_alpha_must_be_between_zero_and_one(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValidationError):
         _settings(monkeypatch, HYBRID_ALPHA="1.5")
+
+
+def test_page_lifetime_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _settings(monkeypatch)
+    assert settings.page_idle_minutes == 15
+    assert settings.page_max_age_hours == 12
+    assert settings.max_stored_chunks == 60_000
+    assert settings.cleanup_interval_seconds == 60
+    assert settings.state_db_path == "data/state.db"
+
+
+@pytest.mark.parametrize(
+    "name", ["PAGE_IDLE_MINUTES", "PAGE_MAX_AGE_HOURS", "MAX_STORED_CHUNKS", "CLEANUP_INTERVAL_SECONDS"]
+)
+def test_page_lifetime_values_must_be_positive(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    with pytest.raises(ValidationError):
+        _settings(monkeypatch, **{name: "0"})

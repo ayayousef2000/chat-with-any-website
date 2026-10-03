@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     top_k: int = Field(default=5, gt=0)
     hybrid_alpha: float = Field(default=0.65, ge=0, le=1)
 
+    # Lifetime of stored pages
+    page_idle_minutes: float = Field(default=15, gt=0)
+    page_max_age_hours: float = Field(default=12, gt=0)
+    max_stored_chunks: int = Field(default=60_000, gt=0)
+    cleanup_interval_seconds: float = Field(default=60, gt=0)
+    state_db_path: str = "data/state.db"
+
     @model_validator(mode="after")
     def _check_overlap(self) -> Self:
         if self.chunk_overlap >= self.chunk_size:

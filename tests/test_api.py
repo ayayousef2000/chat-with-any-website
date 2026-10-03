@@ -23,10 +23,23 @@ UPSTREAM_ERRORS: dict[str, Callable[[], Exception]] = {
 
 
 class FakePipeline:
-    def ingest(self, url: str) -> IngestResult:
+    def __init__(self) -> None:
+        self.ingest_calls: list[tuple[str, bool]] = []
+        self.forgotten: list[str] = []
+
+    def ingest(self, url: str, *, refresh: bool = False) -> IngestResult:
+        self.ingest_calls.append((url, refresh))
         if "down" in url:
             raise FetchError("The website responded with HTTP 503.")
+        if "saved" in url:
+            return IngestResult(
+                url="https://example.com/", title="Example", chunk_count=4, reused=True, age_seconds=240
+            )
         return IngestResult(url="https://example.com/", title="Example", chunk_count=4)
+
+    def forget(self, url: str) -> bool:
+        self.forgotten.append(url)
+        return "known" in url
 
     def ask(self, url: str, question: str) -> Answer:
         if "unloaded" in url:
@@ -45,10 +58,22 @@ def _client() -> TestClient:
     return TestClient(app, raise_server_exceptions=False)
 
 
+def _pipeline() -> FakePipeline:
+    pipeline = app.state.pipeline
+    assert isinstance(pipeline, FakePipeline)
+    return pipeline
+
+
 def test_ingest_returns_summary() -> None:
     response = _client().post("/api/ingest", json={"url": "example.com"})
     assert response.status_code == 200
-    assert response.json() == {"url": "https://example.com/", "title": "Example", "chunk_count": 4}
+    assert response.json() == {
+        "url": "https://example.com/",
+        "title": "Example",
+        "chunk_count": 4,
+        "reused": False,
+        "age_seconds": 0,
+    }
 
 
 def test_ingest_reports_user_facing_errors() -> None:
@@ -134,3 +159,27 @@ def test_api_docs_are_not_restricted_by_the_content_security_policy() -> None:
     assert response.status_code == 200
     assert "Content-Security-Policy" not in response.headers
     assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_ingest_reports_when_a_saved_copy_was_used() -> None:
+    response = _client().post("/api/ingest", json={"url": "https://saved.example"})
+    assert response.json()["reused"] is True
+    assert response.json()["age_seconds"] == 240
+
+
+def test_ingest_passes_the_refresh_option_on() -> None:
+    client = _client()
+    client.post("/api/ingest", json={"url": "https://a.example"})
+    client.post("/api/ingest", json={"url": "https://a.example", "refresh": True})
+    assert _pipeline().ingest_calls == [("https://a.example", False), ("https://a.example", True)]
+
+
+def test_a_stored_page_can_be_deleted() -> None:
+    client = _client()
+    assert client.delete("/api/page", params={"url": "https://known.example"}).json() == {"deleted": True}
+    assert client.delete("/api/page", params={"url": "https://other.example"}).json() == {"deleted": False}
+    assert _pipeline().forgotten == ["https://known.example", "https://other.example"]
+
+
+def test_deleting_requires_an_address() -> None:
+    assert _client().delete("/api/page").status_code == 422
