@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.chunking import chunk_text, contextualize
+from app.citations import cited_numbers
 from app.cleaning import clean_text
 from app.config import Settings
 from app.embeddings import CohereEmbedder
@@ -25,11 +26,23 @@ class IngestResult:
 
 
 @dataclass(frozen=True)
+class CitedSource:
+    """An excerpt that the answer cites, with the number it was cited by."""
+
+    number: int
+    chunk: RetrievedChunk
+
+
+@dataclass(frozen=True)
 class Answer:
-    """An answer together with the chunks it was generated from."""
+    """An answer, the excerpts it cites, and every excerpt that was given to the model.
+
+    ``sources`` holds only cited excerpts, so an answer that says the page does not cover the question has none.
+    """
 
     answer: str
-    sources: list[RetrievedChunk]
+    sources: list[CitedSource]
+    retrieved: list[RetrievedChunk]
 
 
 class Embedder(Protocol):
@@ -156,7 +169,7 @@ class Pipeline:
             question: The user's question.
 
         Returns:
-            The answer and the excerpts it is based on.
+            The answer and the excerpts it cites.
 
         Raises:
             NotIngestedError: If the page has not been loaded.
@@ -168,7 +181,7 @@ class Pipeline:
         query_vector = self._embedder.embed_query(question)
         chunks = self._store.search(url, question, query_vector, self._settings.retrieve_k, self._settings.hybrid_alpha)
         if not chunks:
-            return Answer(answer="I could not find anything relevant on this page.", sources=[])
+            return Answer(answer="I could not find anything relevant on this page.", sources=[], retrieved=[])
 
         if self._reranker:
             chunks = self._reranker.rerank(question, chunks, self._settings.top_k)
@@ -176,7 +189,8 @@ class Pipeline:
             chunks = chunks[: self._settings.top_k]
 
         answer = self._llm.answer(question, chunks[0].title, chunks)
-        return Answer(answer=answer, sources=chunks)
+        sources = [CitedSource(number=n, chunk=chunks[n - 1]) for n in cited_numbers(answer, len(chunks))]
+        return Answer(answer=answer, sources=sources, retrieved=chunks)
 
     def close(self) -> None:
         """Close the vector database connection."""

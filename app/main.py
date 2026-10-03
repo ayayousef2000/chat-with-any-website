@@ -54,8 +54,9 @@ class AskRequest(BaseModel):
 
 
 class Source(BaseModel):
-    """A page excerpt that supports an answer."""
+    """A page excerpt that the answer cites, with the number used in the answer text."""
 
+    number: int
     chunk_index: int
     heading: str
     text: str
@@ -103,7 +104,13 @@ def ask(body: AskRequest, request: Request) -> AskResponse:
     return AskResponse(
         answer=result.answer,
         sources=[
-            Source(chunk_index=chunk.chunk_index, heading=chunk.heading, text=chunk.text, score=chunk.score)
-            for chunk in result.sources
+            Source(
+                number=source.number,
+                chunk_index=source.chunk.chunk_index,
+                heading=source.chunk.heading,
+                text=source.chunk.text,
+                score=source.chunk.score,
+            )
+            for source in result.sources
         ],
     )

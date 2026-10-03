@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from app.embeddings import CohereEmbedder
-from app.llm import GroqChat
+from app.llm import SYSTEM_PROMPT, GroqChat
 from app.reranking import CohereReranker
 from app.vector_store import RetrievedChunk
 
@@ -109,3 +109,19 @@ def test_groq_prompt_contains_numbered_excerpts_and_question() -> None:
     assert "[1] (section: Intro)\ntext 0" in user
     assert "[2]\ntext 1" in user
     assert user.endswith("Question: What is it?")
+
+
+def test_groq_answer_citations_are_normalized() -> None:
+    def create(**kwargs: Any) -> Any:
+        message = SimpleNamespace(content="It was 2020 【1†L1-L3】 【2†L1-L2】.")
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    chat = GroqChat(api_key="k", model="m")
+    chat._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))  # type: ignore[assignment]
+
+    assert chat.answer("When?", "Page", [_chunk(0), _chunk(1)]) == "It was 2020 [1][2]."
+
+
+def test_groq_system_prompt_forbids_other_citation_styles() -> None:
+    assert "square brackets" in SYSTEM_PROMPT
+    assert "never mention line numbers" in SYSTEM_PROMPT

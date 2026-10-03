@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.errors import FetchError, NotIngestedError
 from app.main import app
-from app.pipeline import Answer, IngestResult
+from app.pipeline import Answer, CitedSource, IngestResult
 from app.vector_store import RetrievedChunk
 
 
@@ -18,7 +18,7 @@ class FakePipeline:
         if "boom" in question:
             raise RuntimeError("secret internal detail")
         chunk = RetrievedChunk(title="Example", heading="Intro", text="Some text.", chunk_index=2, score=0.8)
-        return Answer(answer="42 [1]", sources=[chunk])
+        return Answer(answer="42 [1]", sources=[CitedSource(number=1, chunk=chunk)], retrieved=[chunk])
 
 
 def _client() -> TestClient:
@@ -44,7 +44,7 @@ def test_ask_returns_answer_and_sources() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "answer": "42 [1]",
-        "sources": [{"chunk_index": 2, "heading": "Intro", "text": "Some text.", "score": 0.8}],
+        "sources": [{"number": 1, "chunk_index": 2, "heading": "Intro", "text": "Some text.", "score": 0.8}],
     }
 
 
