@@ -17,7 +17,7 @@ Website → Content extraction → Cleaning → Chunking → Embeddings → Vect
 | Embeddings | `app/embeddings.py` | Cohere `embed-v5.0-pro`; each chunk is embedded with its page title and section heading as a prefix (`search_document` for chunks, `search_query` for questions) |
 | Vector database | `app/vector_store.py` | Weaviate Cloud collection with self-provided vectors, one set of chunks per URL |
 | Retrieval | `app/vector_store.py` | Hybrid search (keyword + vector, relative score fusion) filtered by URL, 25 candidates |
-| Reranking | `app/reranking.py` | Cohere `cohere-rerank-4-fast` keeps the best 5 candidates |
+| Reranking | `app/reranking.py` | Cohere `rerank-v4.0-fast` keeps the best 5 candidates |
 | LLM response | `app/llm.py` | `openai/gpt-oss-120b` on Groq, instructed to answer only from the retrieved excerpts |
 
 `app/pipeline.py` ties the steps together, and `app/main.py` exposes them through a FastAPI app with a minimal web UI.
@@ -91,7 +91,7 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `COHERE_EMBED_MODEL` | `embed-v5.0-pro` | Cohere embedding model |
 | `COHERE_EMBED_DIMENSION` | `1024` | Embedding size |
 | `RERANK_ENABLED` | `true` | Rerank retrieved chunks with Cohere |
-| `COHERE_RERANK_MODEL` | `cohere-rerank-4-fast` | Cohere rerank model |
+| `COHERE_RERANK_MODEL` | `rerank-v4.0-fast` | Cohere rerank model |
 | `WEAVIATE_COLLECTION` | `WebsiteChunk` | Weaviate collection name |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Chat model on Groq |
 | `CHUNK_SIZE` | `2000` | Maximum characters per chunk |
