@@ -20,12 +20,13 @@ Website → Content extraction → Cleaning → Chunking → Embeddings → Vect
 | Reranking | `app/reranking.py` | Cohere `rerank-v4.0-fast` keeps the best 5 candidates |
 | LLM response | `app/llm.py` | `openai/gpt-oss-120b` on Groq, instructed to answer only from the retrieved excerpts |
 
-`app/pipeline.py` ties the steps together, and `app/main.py` exposes them through a FastAPI app with a minimal web UI.
+`app/pipeline.py` ties the steps together, and `app/main.py` exposes them through a FastAPI app, with security headers (including a strict content security policy) and a web UI made of `app/static/index.html`, `styles.css` and `app.js`.
 
 ## Requirements
 
 - Python 3.14+
 - [uv](https://docs.astral.sh/uv/)
+- [Node.js](https://nodejs.org/) 24 or newer, only to run the tests of the page script (`.nvmrc` has the version)
 - API keys for [Cohere](https://dashboard.cohere.com/api-keys), [Weaviate Cloud](https://console.weaviate.cloud) and [Groq](https://console.groq.com/keys)
 
 ## Setup
@@ -114,9 +115,9 @@ uv run poe check
 
 | Command | What it does |
 |---|---|
-| `uv run poe check` | Types, lint, format check and tests |
+| `uv run poe check` | Types, lint, format check, Python tests and page script tests |
 | `uv run poe fix` | Apply Ruff's automatic lint fixes and formatting |
-| `uv run poe types` / `lint` / `format` / `test` | Run a single step |
+| `uv run poe types` / `lint` / `format` / `test` / `test-js` | Run a single step |
 
 ### Git hooks
 
@@ -147,6 +148,10 @@ Work happens on branches created from `develop` and is merged into `develop` thr
 ## License
 
 Released under the [MIT License](LICENSE).
+
+## Privacy
+
+The text of every page you load is sent to Cohere (embeddings and reranking) and stored in your Weaviate database, and the excerpts used to answer a question are sent to Groq. Nothing is sent anywhere else. Answers can be wrong, so check the cited sources. Stored pages stay in Weaviate until you delete them.
 
 ## Limitations
 

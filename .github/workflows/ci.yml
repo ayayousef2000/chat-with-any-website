@@ -117,6 +117,22 @@ jobs:
           uvx pip-audit@2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
           --ignore-vuln PYSEC-2026-3740
 
+  page:
+    name: Page script tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - run: node --test tests/js/*.test.js
+
   workflows:
     name: Workflow security
     runs-on: ubuntu-24.04
@@ -138,7 +154,7 @@ jobs:
   ci-gate:
     name: CI passed
     if: always()
-    needs: [lint, test, build, audit, workflows]
+    needs: [lint, test, page, build, audit, workflows]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}

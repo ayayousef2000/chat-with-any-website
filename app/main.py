@@ -1,13 +1,17 @@
 """FastAPI application exposing the ingest and ask endpoints."""
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+import cohere.errors as cohere_errors
+import groq
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from weaviate import exceptions as weaviate_exceptions
 
 from app.config import get_settings
 from app.errors import AppError
@@ -16,6 +20,30 @@ from app.pipeline import Pipeline
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+RATE_LIMIT_ERRORS = (groq.RateLimitError, cohere_errors.TooManyRequestsError)
+UNAVAILABLE_ERRORS = (
+    groq.APIConnectionError,
+    groq.InternalServerError,
+    cohere_errors.ServiceUnavailableError,
+    cohere_errors.GatewayTimeoutError,
+    cohere_errors.InternalServerError,
+    weaviate_exceptions.WeaviateConnectionError,
+    weaviate_exceptions.WeaviateTimeoutError,
+)
+RATE_LIMIT_MESSAGE = (
+    "The AI services are receiving too many requests right now (free-tier limits). Wait about a minute and try again."
+)
+UNAVAILABLE_MESSAGE = "An external service did not respond. Try again in a moment."
+RETRY_AFTER_SECONDS = "60"
+
+# Scripts and styles are served from this origin only, so injected markup could not run or load anything.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; "
+    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
+# The generated API docs load their assets from a CDN, so the policy does not apply to them.
+DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 
 
 @asynccontextmanager
@@ -30,6 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Chat With Any Website", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class IngestRequest(BaseModel):
@@ -74,6 +103,39 @@ class AskResponse(BaseModel):
 async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
     """Return a user-facing error response for expected failures."""
     return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
+
+
+async def handle_rate_limit(request: Request, exc: Exception) -> JSONResponse:
+    """Tell the user an upstream service is rate limiting, and when to retry."""
+    logger.warning("Rate limited by an upstream service on %s: %s", request.url.path, type(exc).__name__)
+    return JSONResponse(
+        status_code=429,
+        content={"detail": RATE_LIMIT_MESSAGE},
+        headers={"Retry-After": RETRY_AFTER_SECONDS},
+    )
+
+
+async def handle_unavailable(request: Request, exc: Exception) -> JSONResponse:
+    """Tell the user an upstream service is unreachable."""
+    logger.warning("Upstream service unavailable on %s: %s", request.url.path, type(exc).__name__)
+    return JSONResponse(status_code=503, content={"detail": UNAVAILABLE_MESSAGE})
+
+
+for _rate_limit_error in RATE_LIMIT_ERRORS:
+    app.add_exception_handler(_rate_limit_error, handle_rate_limit)
+for _unavailable_error in UNAVAILABLE_ERRORS:
+    app.add_exception_handler(_unavailable_error, handle_unavailable)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    """Add browser security headers to every response."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    if not request.url.path.startswith(DOCS_PATHS):
+        response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+    return response
 
 
 @app.exception_handler(Exception)
