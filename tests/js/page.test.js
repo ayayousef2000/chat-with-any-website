@@ -369,3 +369,19 @@ test("confirmDialog falls back to the built-in confirmation without <dialog> sup
     delete globalThis.window;
   }
 });
+
+test("withAvatar puts the assistant icon before the message in one row", () => {
+  const bubble = new FakeElement("div");
+  bubble.className = "message assistant";
+  const row = page.withAvatar(bubble);
+
+  assert.equal(row.tag, "div");
+  assert.ok(row.classList.contains("row"));
+  assert.equal(row.children.length, 2);
+  const [avatar, message] = row.children;
+  assert.equal(avatar.tag, "img");
+  assert.ok(avatar.classList.contains("avatar"));
+  assert.equal(avatar.alt, "Assistant");
+  assert.match(avatar.src, /^\/static\/favicon\.svg\?v=\d+$/);
+  assert.equal(message, bubble);
+});

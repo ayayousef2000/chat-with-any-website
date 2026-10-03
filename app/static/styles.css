@@ -251,6 +251,27 @@ button.link:hover:not(:disabled) { transform: none; box-shadow: none; }
   animation: float 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+/* An assistant message sits in a row beside the assistant's icon. */
+.row {
+  display: flex;
+  align-items: flex-start;
+  align-self: flex-start;
+  gap: 10px;
+  max-width: 94%;
+  animation: float 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.row > .message { max-width: none; min-width: 0; animation: none; }
+
+.avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-top: 2px;
+  border-radius: 10px;
+  box-shadow: 0 2px 12px var(--shadow);
+}
+
 .message.user {
   align-self: flex-end;
   border-radius: 16px 16px 4px 16px;
@@ -385,7 +406,7 @@ button.danger { color: var(--danger-text); background: var(--danger); box-shadow
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .message, dialog[open] { animation: none; }
+  .message, .row, dialog[open] { animation: none; }
   .typing span { animation: none; opacity: 0.6; }
   button { transition: none; }
   button:hover:not(:disabled) { transform: none; }
