@@ -92,6 +92,18 @@
     details { margin-top: 8px; font-size: 0.85rem; color: var(--muted); white-space: normal; }
     summary { cursor: pointer; }
     .source { margin: 8px 0 0; padding: 8px; border-left: 3px solid var(--border); white-space: pre-wrap; }
+    .source.highlight { border-left-color: var(--accent); background: var(--user-bubble); }
+    button.cite {
+      padding: 0 5px;
+      margin: 0 1px;
+      font-size: 0.8em;
+      font-weight: 600;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+    }
+    button.cite:hover, button.cite:focus-visible { color: var(--accent-text); background: var(--accent); }
     @media (max-width: 520px) {
       form { flex-direction: column; }
     }
@@ -156,24 +168,93 @@
       return data;
     }
 
+    // Builds the collapsible source list. Clicking a citation shows only that source; clicking the
+    // "Sources" line shows all of them.
+    function buildSources(sources) {
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      details.append(summary);
+
+      const items = new Map();
+      let only = null; // the source number currently shown alone, or null for all
+
+      function render() {
+        summary.textContent =
+          only === null ? `Sources (${sources.length})` : `Sources (${sources.length}) · showing [${only}] only`;
+        items.forEach((item, number) => {
+          item.hidden = only !== null && number !== only;
+        });
+      }
+
+      sources.forEach((source) => {
+        const item = document.createElement("p");
+        item.className = "source";
+        item.textContent = `[${source.number}] ${source.heading ? source.heading + ": " : ""}${source.text}`;
+        details.append(item);
+        items.set(source.number, item);
+      });
+
+      summary.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (details.open && only === null) {
+          details.open = false;
+        } else {
+          only = null;
+          details.open = true;
+          render();
+        }
+      });
+
+      function showOnly(number) {
+        if (details.open && only === number) {
+          only = null;
+          details.open = false;
+          render();
+          return;
+        }
+        only = number;
+        details.open = true;
+        render();
+        const item = items.get(number);
+        item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        item.classList.add("highlight");
+        setTimeout(() => item.classList.remove("highlight"), 1600);
+      }
+
+      render();
+      return { details, showOnly, has: (number) => items.has(number) };
+    }
+
+    // Turns "[2]" markers in the answer into buttons that show the matching source.
+    function renderAnswer(container, text, sourceList) {
+      text.split(/(\[\d+\])/).forEach((part) => {
+        const number = Number(part.slice(1, -1));
+        if (!/^\[\d+\]$/.test(part) || !sourceList.has(number)) {
+          container.append(part);
+          return;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "cite";
+        button.textContent = part;
+        button.setAttribute("aria-label", `Show source ${number}`);
+        button.addEventListener("click", () => sourceList.showOnly(number));
+        container.append(button);
+      });
+    }
+
     function addMessage(role, text, sources = []) {
       messagesEl.querySelector(".empty")?.remove();
       const el = document.createElement("div");
       el.className = `message ${role}`;
-      el.textContent = text;
 
       if (sources.length) {
-        const details = document.createElement("details");
-        const summary = document.createElement("summary");
-        summary.textContent = `Sources (${sources.length})`;
-        details.append(summary);
-        sources.forEach((source, i) => {
-          const p = document.createElement("p");
-          p.className = "source";
-          p.textContent = `[${i + 1}] ${source.heading ? source.heading + ": " : ""}${source.text}`;
-          details.append(p);
-        });
-        el.append(details);
+        const sourceList = buildSources(sources);
+        const answerEl = document.createElement("span");
+        renderAnswer(answerEl, text, sourceList);
+        el.append(answerEl, sourceList.details);
+      } else {
+        el.textContent = text;
       }
 
       messagesEl.append(el);

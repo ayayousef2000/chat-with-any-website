@@ -4,12 +4,19 @@ from collections.abc import Sequence
 
 from groq import Groq
 
+from app.citations import normalize_citations
 from app.vector_store import RetrievedChunk
 
 SYSTEM_PROMPT = """You answer questions about a single web page.
 Use only the numbered excerpts from that page provided by the user.
-If the excerpts do not contain the answer, say that the page does not seem to cover it.
-Do not make up facts. Cite the excerpts you rely on with their numbers, for example [1] or [2][3].
+Do not make up facts.
+
+Citations:
+- After each statement taken from the page, cite the excerpts it comes from using plain square brackets with
+  the excerpt number only, for example [1] or [2][3].
+- Never use any other citation style, such as 【1†L1-L3】, and never mention line numbers.
+
+If the excerpts do not contain the answer, say only that the page does not seem to cover it, and cite nothing.
 Answer in the same language as the question."""
 
 
@@ -29,7 +36,7 @@ class GroqChat:
             chunks: The retrieved excerpts, most relevant first.
 
         Returns:
-            The model's answer, citing excerpts by number.
+            The model's answer, citing excerpts with plain ``[n]`` markers.
         """
         excerpts = "\n\n".join(
             f"[{number}] (section: {chunk.heading})\n{chunk.text}" if chunk.heading else f"[{number}]\n{chunk.text}"
@@ -45,4 +52,4 @@ class GroqChat:
             ],
             temperature=0.2,
         )
-        return (completion.choices[0].message.content or "").strip()
+        return normalize_citations((completion.choices[0].message.content or "").strip())

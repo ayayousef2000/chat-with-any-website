@@ -60,12 +60,13 @@ class FakeReranker:
 
 
 class FakeChat:
-    def __init__(self) -> None:
+    def __init__(self, reply: str = "the answer [1][3]") -> None:
+        self.reply = reply
         self.calls: list[tuple[str, str, list[RetrievedChunk]]] = []
 
     def answer(self, question: str, title: str, chunks: Sequence[RetrievedChunk]) -> str:
         self.calls.append((question, title, list(chunks)))
-        return "the answer [1]"
+        return self.reply
 
 
 @pytest.fixture
@@ -147,10 +148,10 @@ def test_ask_without_reranker_keeps_top_k(settings: Settings) -> None:
 
     answer = pipeline.ask(URL, "What is retrieval?")
 
-    assert answer.answer == "the answer [1]"
+    assert answer.answer == "the answer [1][3]"
     assert embedder.queries == ["What is retrieval?"]
     assert store.search_args == (URL, "What is retrieval?", 8, 0.5)
-    assert [c.chunk_index for c in answer.sources] == [0, 1, 2]
+    assert [c.chunk_index for c in answer.retrieved] == [0, 1, 2]
     assert chat.calls[0][1] == "Retrieval Guide"
 
 
@@ -161,9 +162,46 @@ def test_ask_with_reranker_uses_reranked_order(settings: Settings) -> None:
     answer = pipeline.ask(URL, "What is retrieval?")
 
     # The fake store returns the first 8 chunks; the fake reranker reverses them and keeps 3.
-    assert [c.chunk_index for c in answer.sources] == [7, 6, 5]
-    assert all(c.score == 0.9 for c in answer.sources)
-    assert chat.calls[0][2] == answer.sources
+    assert [c.chunk_index for c in answer.retrieved] == [7, 6, 5]
+    assert all(c.score == 0.9 for c in answer.retrieved)
+    assert chat.calls[0][2] == answer.retrieved
+
+
+def test_ask_returns_only_cited_sources_with_their_numbers(settings: Settings) -> None:
+    pipeline, *_ = _pipeline(settings.model_copy(update={"rerank_enabled": False}))
+    pipeline.ingest(URL)
+
+    answer = pipeline.ask(URL, "What is retrieval?")
+
+    # The answer cites [1] and [3]; excerpt [2] was retrieved but not used.
+    assert [(s.number, s.chunk.chunk_index) for s in answer.sources] == [(1, 0), (3, 2)]
+    assert len(answer.retrieved) == 3
+
+
+def test_ask_has_no_sources_when_the_answer_cites_nothing(settings: Settings) -> None:
+    store, chat = FakeStore(), FakeChat("The page does not seem to cover that.")
+    pipeline = Pipeline(
+        settings.model_copy(update={"rerank_enabled": False}), embedder=FakeEmbedder(), store=store, llm=chat
+    )
+    pipeline.ingest(URL)
+
+    answer = pipeline.ask(URL, "Unrelated question?")
+
+    assert answer.sources == []
+    assert answer.answer == "The page does not seem to cover that."
+    assert len(answer.retrieved) == 3
+
+
+def test_ask_ignores_citations_to_missing_excerpts(settings: Settings) -> None:
+    store, chat = FakeStore(), FakeChat("Made up [9] and real [2].")
+    pipeline = Pipeline(
+        settings.model_copy(update={"rerank_enabled": False}), embedder=FakeEmbedder(), store=store, llm=chat
+    )
+    pipeline.ingest(URL)
+
+    answer = pipeline.ask(URL, "Question?")
+
+    assert [s.number for s in answer.sources] == [2]
 
 
 def test_default_components_are_created_from_settings(settings: Settings) -> None:

@@ -99,7 +99,7 @@ def main() -> None:
             for case in page["questions"]:
                 answerable = case.get("answerable", True)
                 outcome = pipeline.ask(url, case["question"])
-                excerpts = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(outcome.sources, start=1))
+                excerpts = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(outcome.retrieved, start=1))
 
                 phrases = [phrase.casefold() for phrase in case.get("must_contain", [])]
                 retrieval_hit = (
