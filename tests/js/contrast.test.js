@@ -87,6 +87,11 @@ for (const [themeName, v] of Object.entries(themes())) {
     }
   }
 
+  test(`${themeName} theme: the delete button text reaches 4.5:1`, () => {
+    const ratio = contrast(solid(v["danger-text"]), solid(v.danger));
+    assert.ok(ratio >= 4.5, `delete button text is only ${ratio.toFixed(2)}:1`);
+  });
+
   for (const stop of ["g1", "g2"]) {
     test(`${themeName} theme: button text on gradient stop ${stop} reaches 4.5:1`, () => {
       const ratio = contrast(solid(v["btn-text"]), solid(v[stop]));
