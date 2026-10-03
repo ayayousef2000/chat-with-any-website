@@ -50,6 +50,34 @@ async function askWithReload(post, url, question, onReload) {
   return post("/api/ask", { url, question });
 }
 
+// Asks the user to confirm an action in a modal <dialog> and resolves to true only if they confirm.
+// `parts` holds the dialog and its title, text and confirm button elements. The dialog closes by itself on
+// Escape, on its buttons (a form with method="dialog") and, handled here, on a click on the dimmed backdrop.
+// Browsers without <dialog> support fall back to the built-in confirmation.
+function confirmDialog(parts, { title, message, confirmLabel }) {
+  const { dialog, titleElement, textElement, confirmButton } = parts;
+  if (typeof dialog.showModal !== "function") return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  titleElement.textContent = title;
+  textElement.textContent = message;
+  confirmButton.textContent = confirmLabel;
+  return new Promise((resolve) => {
+    const onBackdropClick = (event) => {
+      if (event.target === dialog) dialog.close();
+    };
+    dialog.addEventListener("click", onBackdropClick);
+    dialog.addEventListener(
+      "close",
+      () => {
+        dialog.removeEventListener("click", onBackdropClick);
+        resolve(dialog.returnValue === "confirm");
+      },
+      { once: true },
+    );
+    dialog.returnValue = "";
+    dialog.showModal();
+  });
+}
+
 // Only absolute http(s) addresses may become links.
 function safeUrl(value) {
   return /^https?:\/\/[^\s]+$/i.test(value) ? value : null;
@@ -461,8 +489,20 @@ function init() {
 
   forgetButton.addEventListener("click", async () => {
     if (!page) return;
-    const question = `Delete the saved copy of "${page.title}"? Anyone using this page will load it again on their next question.`;
-    if (!window.confirm(question)) return;
+    const confirmed = await confirmDialog(
+      {
+        dialog: document.getElementById("confirm-dialog"),
+        titleElement: document.getElementById("confirm-title"),
+        textElement: document.getElementById("confirm-text"),
+        confirmButton: document.getElementById("confirm-ok"),
+      },
+      {
+        title: "Delete the saved copy?",
+        message: `This removes the stored text of "${page.title}". You can load the page again at any time.`,
+        confirmLabel: "Delete",
+      },
+    );
+    if (!confirmed) return;
     setBusy(true);
     try {
       await request(`/api/page?url=${encodeURIComponent(page.url)}`, { method: "DELETE" });
@@ -506,6 +546,7 @@ function init() {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     HttpError,
+    confirmDialog,
     formatAge,
     describeLoad,
     askWithReload,

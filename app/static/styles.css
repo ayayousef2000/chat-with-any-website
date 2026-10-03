@@ -30,6 +30,8 @@
   --g1: #066b4a;
   --g2: #0a6d77;
   --shadow: rgba(6, 107, 74, 0.25);
+  --danger: #b3321f;
+  --danger-text: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -53,6 +55,8 @@
     --g1: #34f5a5;
     --g2: #22d3ee;
     --shadow: rgba(52, 245, 165, 0.35);
+    --danger: #ffa3a3;
+    --danger-text: #2a0a0a;
   }
 }
 
@@ -324,6 +328,38 @@ button.cite:hover:not(:disabled), button.cite:focus-visible {
   transform: none;
 }
 
+/* Confirmation dialog. The form fills the dialog, so a click on the dimmed backdrop is a click on the dialog. */
+dialog {
+  width: min(92vw, 26rem);
+  padding: 0;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+dialog::backdrop {
+  background: rgba(3, 10, 14, 0.6);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+dialog[open] { animation: dialog-in 0.18s ease-out; }
+
+dialog form { display: block; padding: 22px; }
+dialog h2 { margin: 0 0 8px; font: 700 1.25rem/1.25 var(--serif); }
+dialog p { margin: 0 0 20px; color: var(--muted); font: 1.02rem/1.5 var(--serif); overflow-wrap: anywhere; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-actions button { padding: 8px 18px; }
+
+button.danger { color: var(--danger-text); background: var(--danger); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25); }
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
 /* Typing indicator while an answer is on its way */
 .typing { display: inline-flex; gap: 4px; align-items: center; height: 1.5em; }
 
@@ -349,7 +385,7 @@ button.cite:hover:not(:disabled), button.cite:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .message { animation: none; }
+  .message, dialog[open] { animation: none; }
   .typing span { animation: none; opacity: 0.6; }
   button { transition: none; }
   button:hover:not(:disabled) { transform: none; }

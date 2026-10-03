@@ -47,6 +47,17 @@
     </form>
   </main>
 
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <form method="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+      <div class="dialog-actions">
+        <button id="confirm-cancel" type="submit" value="cancel" class="secondary" autofocus>Cancel</button>
+        <button id="confirm-ok" type="submit" value="confirm" class="danger">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -261,3 +261,111 @@ test("askWithReload reports a failed reload instead of asking again", async () =
   await assert.rejects(page.askWithReload(post, "u", "q", () => {}), /page is down/);
   assert.equal(calls.length, 2);
 });
+
+// A stand-in for the browser's <dialog>: showModal opens it, close() closes it and fires "close".
+class FakeDialog {
+  constructor({ supportsModal = true } = {}) {
+    this.open = false;
+    this.returnValue = "";
+    this.listeners = {};
+    this.shown = 0;
+    if (supportsModal) this.showModal = () => ((this.open = true), (this.shown += 1));
+  }
+
+  addEventListener(type, listener, options = {}) {
+    (this.listeners[type] ||= []).push({ listener, once: Boolean(options.once) });
+  }
+
+  removeEventListener(type, listener) {
+    this.listeners[type] = (this.listeners[type] || []).filter((entry) => entry.listener !== listener);
+  }
+
+  dispatch(type, event = {}) {
+    for (const entry of [...(this.listeners[type] || [])]) {
+      if (entry.once) this.removeEventListener(type, entry.listener);
+      entry.listener({ target: this, ...event });
+    }
+  }
+
+  close(value) {
+    if (value !== undefined) this.returnValue = value;
+    this.open = false;
+    this.dispatch("close");
+  }
+}
+
+function dialogParts(dialog) {
+  return {
+    dialog,
+    titleElement: { textContent: "" },
+    textElement: { textContent: "" },
+    confirmButton: { textContent: "" },
+  };
+}
+
+const OPTIONS = { title: "Delete the saved copy?", message: "This removes the text.", confirmLabel: "Delete" };
+
+test("confirmDialog shows the texts and resolves true when the user confirms", async () => {
+  const dialog = new FakeDialog();
+  const parts = dialogParts(dialog);
+  const answer = page.confirmDialog(parts, OPTIONS);
+
+  assert.equal(dialog.open, true);
+  assert.equal(parts.titleElement.textContent, "Delete the saved copy?");
+  assert.equal(parts.textElement.textContent, "This removes the text.");
+  assert.equal(parts.confirmButton.textContent, "Delete");
+
+  dialog.close("confirm"); // the Delete button
+  assert.equal(await answer, true);
+});
+
+test("confirmDialog resolves false for Cancel and for Escape", async () => {
+  const cancelled = new FakeDialog();
+  const first = page.confirmDialog(dialogParts(cancelled), OPTIONS);
+  cancelled.close("cancel");
+  assert.equal(await first, false);
+
+  const escaped = new FakeDialog();
+  const second = page.confirmDialog(dialogParts(escaped), OPTIONS);
+  escaped.close(); // Escape closes the dialog without a return value
+  assert.equal(await second, false);
+});
+
+test("confirmDialog treats a click on the backdrop as Cancel but not a click inside", async () => {
+  const dialog = new FakeDialog();
+  const answer = page.confirmDialog(dialogParts(dialog), OPTIONS);
+
+  dialog.dispatch("click", { target: { tagName: "BUTTON" } }); // inside the dialog
+  assert.equal(dialog.open, true);
+
+  dialog.dispatch("click", { target: dialog }); // the backdrop
+  assert.equal(dialog.open, false);
+  assert.equal(await answer, false);
+});
+
+test("confirmDialog cleans up after itself and can be used again", async () => {
+  const dialog = new FakeDialog();
+  const first = page.confirmDialog(dialogParts(dialog), OPTIONS);
+  dialog.close("confirm");
+  await first;
+  assert.equal(dialog.listeners.click.length, 0);
+
+  const second = page.confirmDialog(dialogParts(dialog), OPTIONS);
+  assert.equal(dialog.returnValue, ""); // the earlier answer does not carry over
+  dialog.close("cancel");
+  assert.equal(await second, false);
+  assert.equal(dialog.shown, 2);
+});
+
+test("confirmDialog falls back to the built-in confirmation without <dialog> support", async () => {
+  const asked = [];
+  globalThis.window = { confirm: (message) => (asked.push(message), true) };
+  try {
+    const result = await page.confirmDialog(dialogParts(new FakeDialog({ supportsModal: false })), OPTIONS);
+    assert.equal(result, true);
+    assert.match(asked[0], /Delete the saved copy\?/);
+    assert.match(asked[0], /This removes the text\./);
+  } finally {
+    delete globalThis.window;
+  }
+});
