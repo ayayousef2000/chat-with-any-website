@@ -189,3 +189,75 @@ test("answer: without sources there are no buttons and no source list", () => {
   assert.equal(answer.body.find((element) => element.tag === "button").length, 0);
   assert.ok(answer.body.toHTML().includes("[1]"));
 });
+
+test("formatAge describes how old a saved copy is", () => {
+  assert.equal(page.formatAge(0), "just now");
+  assert.equal(page.formatAge(44), "just now");
+  assert.equal(page.formatAge(60), "1 minute ago");
+  assert.equal(page.formatAge(240), "4 minutes ago");
+  assert.equal(page.formatAge(3500), "58 minutes ago");
+  assert.equal(page.formatAge(3600), "1 hour ago");
+  assert.equal(page.formatAge(7300), "2 hours ago");
+});
+
+test("describeLoad only speaks up when a saved copy was used", () => {
+  assert.equal(page.describeLoad({ title: "T", reused: false, age_seconds: 0 }), "");
+  const message = page.describeLoad({ title: "My Page", reused: true, age_seconds: 240 });
+  assert.match(message, /My Page/);
+  assert.match(message, /saved copy/);
+  assert.match(message, /4 minutes ago/);
+  assert.match(message, /Refresh/);
+});
+
+function fakePost(script) {
+  const calls = [];
+  const post = async (path, payload) => {
+    calls.push([path, payload]);
+    const step = script.shift();
+    if (step instanceof Error) throw step;
+    return step;
+  };
+  return { post, calls };
+}
+
+test("askWithReload returns the answer when the page is still stored", async () => {
+  const { post, calls } = fakePost([{ answer: "ok" }]);
+  let reloads = 0;
+  const result = await page.askWithReload(post, "https://a.example/", "Why?", () => (reloads += 1));
+  assert.deepEqual(result, { answer: "ok" });
+  assert.equal(reloads, 0);
+  assert.deepEqual(calls, [["/api/ask", { url: "https://a.example/", question: "Why?" }]]);
+});
+
+test("askWithReload loads the page again when its saved copy is gone, then asks once more", async () => {
+  const { post, calls } = fakePost([new page.HttpError("not loaded", 404), { title: "T" }, { answer: "ok" }]);
+  let reloads = 0;
+  const result = await page.askWithReload(post, "https://a.example/", "Why?", () => (reloads += 1));
+  assert.deepEqual(result, { answer: "ok" });
+  assert.equal(reloads, 1);
+  assert.deepEqual(
+    calls.map(([path]) => path),
+    ["/api/ask", "/api/ingest", "/api/ask"],
+  );
+  assert.deepEqual(calls[1][1], { url: "https://a.example/" });
+});
+
+test("askWithReload does not reload for other errors", async () => {
+  const { post, calls } = fakePost([new page.HttpError("rate limit", 429)]);
+  await assert.rejects(page.askWithReload(post, "u", "q", () => assert.fail("must not reload")), /rate limit/);
+  assert.equal(calls.length, 1);
+  const network = fakePost([new TypeError("Failed to fetch")]);
+  await assert.rejects(page.askWithReload(network.post, "u", "q", () => assert.fail("must not reload")), TypeError);
+});
+
+test("askWithReload gives up when the second question fails too", async () => {
+  const { post, calls } = fakePost([new page.HttpError("gone", 404), { title: "T" }, new page.HttpError("gone", 404)]);
+  await assert.rejects(page.askWithReload(post, "u", "q", () => {}), /gone/);
+  assert.equal(calls.length, 3);
+});
+
+test("askWithReload reports a failed reload instead of asking again", async () => {
+  const { post, calls } = fakePost([new page.HttpError("gone", 404), new page.HttpError("page is down", 502)]);
+  await assert.rejects(page.askWithReload(post, "u", "q", () => {}), /page is down/);
+  assert.equal(calls.length, 2);
+});

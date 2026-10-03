@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import weaviate
+from weaviate.classes.aggregate import GroupByAggregate
 from weaviate.classes.config import Configure, DataType, Property, Tokenization
 from weaviate.classes.data import DataObject
 from weaviate.classes.init import Auth
@@ -79,6 +80,23 @@ class WeaviateStore:
         if result.has_errors:
             first_error = next(iter(result.errors.values()))
             raise RuntimeError(f"Failed to store {len(result.errors)} chunk(s) in Weaviate: {first_error.message}")
+
+    def delete_source(self, url: str) -> None:
+        """Delete every chunk stored for a URL.
+
+        Args:
+            url: The normalized page address.
+        """
+        self._collection.data.delete_many(where=Filter.by_property("url").equal(url))
+
+    def list_sources(self) -> dict[str, int]:
+        """Count the stored chunks per URL.
+
+        Returns:
+            A mapping from page address to the number of chunks stored for it.
+        """
+        result = self._collection.aggregate.over_all(group_by=GroupByAggregate(prop="url"))
+        return {str(group.grouped_by.value): group.total_count or 0 for group in result.groups}
 
     def has_source(self, url: str) -> bool:
         """Check whether any chunks are stored for a URL.

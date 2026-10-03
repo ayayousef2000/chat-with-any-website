@@ -1,5 +1,4 @@
-from collections.abc import Sequence
-from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -10,79 +9,12 @@ from app.errors import ExtractionError, NotIngestedError
 from app.extraction import ExtractedPage
 from app.pipeline import Pipeline
 from app.reranking import CohereReranker
-from app.vector_store import RetrievedChunk, StoredChunk
-
-URL = "https://example.com/"
-TEXT = "# Guide\n\n" + "\n\n".join(f"Paragraph {i} about retrieval. " + "word " * 60 for i in range(12))
-
-
-class FakeEmbedder:
-    def __init__(self) -> None:
-        self.documents: list[str] = []
-        self.queries: list[str] = []
-
-    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        self.documents.extend(texts)
-        return [[float(len(text)), 1.0] for text in texts]
-
-    def embed_query(self, text: str) -> list[float]:
-        self.queries.append(text)
-        return [1.0, 1.0]
-
-
-class FakeStore:
-    def __init__(self) -> None:
-        self.sources: dict[str, tuple[str, list[StoredChunk]]] = {}
-        self.search_args: tuple[str, str, int, float] | None = None
-        self.closed = False
-
-    def replace_source(self, url: str, title: str, chunks: Sequence[StoredChunk]) -> None:
-        self.sources[url] = (title, list(chunks))
-
-    def has_source(self, url: str) -> bool:
-        return url in self.sources
-
-    def search(self, url: str, query: str, vector: Sequence[float], limit: int, alpha: float) -> list[RetrievedChunk]:
-        self.search_args = (url, query, limit, alpha)
-        title, chunks = self.sources[url]
-        return [
-            RetrievedChunk(title=title, heading=c.heading, text=c.text, chunk_index=i, score=1.0 / (i + 1))
-            for i, c in enumerate(chunks[:limit])
-        ]
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class FakeReranker:
-    def rerank(self, query: str, chunks: list[RetrievedChunk], top_n: int) -> list[RetrievedChunk]:
-        return [replace(c, score=0.9) for c in reversed(chunks)][:top_n]
-
-
-class FakeChat:
-    def __init__(self, reply: str = "the answer [1][3]") -> None:
-        self.reply = reply
-        self.calls: list[tuple[str, str, list[RetrievedChunk]]] = []
-
-    def answer(self, question: str, title: str, chunks: Sequence[RetrievedChunk]) -> str:
-        self.calls.append((question, title, list(chunks)))
-        return self.reply
+from tests.fakes import TEXT, URL, FakeChat, FakeEmbedder, FakeReranker, FakeStore, make_settings
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(  # type: ignore[call-arg]
-        _env_file=None,
-        cohere_api_key="c",
-        weaviate_url="https://example.weaviate.cloud",
-        weaviate_api_key="w",
-        groq_api_key="g",
-        chunk_size=400,
-        chunk_overlap=50,
-        retrieve_k=8,
-        top_k=3,
-        hybrid_alpha=0.5,
-    )
+def settings(tmp_path: Path) -> Settings:
+    return make_settings(tmp_path)
 
 
 @pytest.fixture(autouse=True)
@@ -117,11 +49,16 @@ def test_ingest_stores_chunks_with_contextual_embeddings(settings: Settings) -> 
     assert all(not c.text.startswith("Retrieval Guide") for c in stored)
 
 
-def test_ingest_replaces_previous_chunks(settings: Settings) -> None:
-    pipeline, _, store, _ = _pipeline(settings)
+def test_refreshing_replaces_previous_chunks(settings: Settings) -> None:
+    pipeline, embedder, store, _ = _pipeline(settings)
     pipeline.ingest(URL)
     first = store.sources[URL][1]
-    pipeline.ingest(URL)
+    calls_after_first_load = len(embedder.documents)
+
+    result = pipeline.ingest(URL, refresh=True)
+
+    assert result.reused is False
+    assert len(embedder.documents) == 2 * calls_after_first_load
     assert len(store.sources) == 1
     assert store.sources[URL][1] == first
 
