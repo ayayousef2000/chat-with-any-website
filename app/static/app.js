@@ -4,6 +4,8 @@
 // The helpers up to "Page wiring" only use `document` for creating elements, so they can be tested with a
 // stand-in DOM (see tests/js). Everything is built from text nodes; no HTML string is ever inserted.
 
+// The same address as the tab icon, including its version, so both come from one cached file.
+const AVATAR_URL = "/static/favicon.svg?v=2";
 const EXAMPLE_URL = "https://en.wikipedia.org/wiki/Retrieval-augmented_generation";
 const STORAGE_KEY = "chat-with-any-website:page";
 
@@ -48,6 +50,18 @@ async function askWithReload(post, url, question, onReload) {
   onReload();
   await post("/api/ingest", { url });
   return post("/api/ask", { url, question });
+}
+
+// Puts the assistant's icon beside one of its messages. Returns the row that holds both.
+function withAvatar(bubble) {
+  const row = createElement("div", "row");
+  const avatar = createElement("img", "avatar");
+  avatar.src = AVATAR_URL;
+  avatar.alt = "Assistant";
+  avatar.width = 32;
+  avatar.height = 32;
+  row.append(avatar, bubble);
+  return row;
 }
 
 // Asks the user to confirm an action in a modal <dialog> and resolves to true only if they confirm.
@@ -385,7 +399,7 @@ function init() {
     clearEmptyState();
     const element = createElement("div", `message ${role}`);
     element.textContent = text;
-    messagesEl.append(element);
+    messagesEl.append(role.includes("assistant") ? withAvatar(element) : element);
     scrollToBottom();
     return element;
   }
@@ -396,8 +410,9 @@ function init() {
     const answer = buildAnswer(text, sources, { reduceMotion: reduceMotion() });
     element.append(answer.body);
     if (answer.details) element.append(answer.details);
-    messagesEl.append(element);
-    scrollToMessage(element);
+    const row = withAvatar(element);
+    messagesEl.append(row);
+    scrollToMessage(row);
   }
 
   function addTyping() {
@@ -407,9 +422,10 @@ function init() {
     const dots = createElement("span", "typing");
     dots.append(createElement("span"), createElement("span"), createElement("span"));
     element.append(dots);
-    messagesEl.append(element);
+    const row = withAvatar(element);
+    messagesEl.append(row);
     scrollToBottom();
-    return element;
+    return row;
   }
 
   async function request(path, options) {
@@ -546,6 +562,7 @@ function init() {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     HttpError,
+    withAvatar,
     confirmDialog,
     formatAge,
     describeLoad,
