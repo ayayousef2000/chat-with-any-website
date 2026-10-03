@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # Reranking (Cohere)
     rerank_enabled: bool = True
-    cohere_rerank_model: str = "cohere-rerank-4-fast"
+    cohere_rerank_model: str = "rerank-v4.0-fast"
 
     # Fetching
     fetch_timeout_seconds: float = 20.0
