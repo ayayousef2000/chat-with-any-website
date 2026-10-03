@@ -144,6 +144,10 @@ The commit message must follow [Conventional Commits](https://www.conventionalco
 
 Work happens on branches created from `develop` and is merged into `develop` through pull requests; releases go from `develop` to `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full flow and [SECURITY.md](SECURITY.md) to report a vulnerability.
 
+## License
+
+Released under the [MIT License](LICENSE).
+
 ## Limitations
 
 - Only the single page at the given URL is indexed; links are not crawled.

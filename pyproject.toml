@@ -10,6 +10,8 @@ name = "chat-with-any-website"
 version = "0.1.0"
 description = "Ask questions about any web page using retrieval-augmented generation."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.14"
 dependencies = [
     "cohere>=7.2.0",
