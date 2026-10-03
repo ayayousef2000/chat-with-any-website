@@ -1,9 +1,25 @@
+from collections.abc import Callable
+
+import cohere.errors as cohere_errors
+import groq
+import httpx
+import pytest
 from fastapi.testclient import TestClient
+from weaviate import exceptions as weaviate_exceptions
 
 from app.errors import FetchError, NotIngestedError
 from app.main import app
 from app.pipeline import Answer, CitedSource, IngestResult
 from app.vector_store import RetrievedChunk
+
+_REQUEST = httpx.Request("POST", "https://api.example.invalid/v1")
+UPSTREAM_ERRORS: dict[str, Callable[[], Exception]] = {
+    "groq-rate-limit": lambda: groq.RateLimitError("limit", response=httpx.Response(429, request=_REQUEST), body=None),
+    "cohere-rate-limit": lambda: cohere_errors.TooManyRequestsError(body={"message": "limit"}),
+    "groq-down": lambda: groq.APIConnectionError(request=_REQUEST),
+    "cohere-down": lambda: cohere_errors.ServiceUnavailableError(body={"message": "down"}),
+    "weaviate-down": lambda: weaviate_exceptions.WeaviateConnectionError("down"),
+}
 
 
 class FakePipeline:
@@ -17,6 +33,8 @@ class FakePipeline:
             raise NotIngestedError("This URL has not been loaded yet.")
         if "boom" in question:
             raise RuntimeError("secret internal detail")
+        if question in UPSTREAM_ERRORS:
+            raise UPSTREAM_ERRORS[question]()
         chunk = RetrievedChunk(title="Example", heading="Intro", text="Some text.", chunk_index=2, score=0.8)
         return Answer(answer="42 [1]", sources=[CitedSource(number=1, chunk=chunk)], retrieved=[chunk])
 
@@ -69,3 +87,47 @@ def test_index_page_is_served() -> None:
     response = _client().get("/")
     assert response.status_code == 200
     assert "Chat With Any Website" in response.text
+
+
+@pytest.mark.parametrize("question", ["groq-rate-limit", "cohere-rate-limit"])
+def test_rate_limits_get_a_friendly_message_and_retry_hint(question: str) -> None:
+    response = _client().post("/api/ask", json={"url": "https://example.com/", "question": question})
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "60"
+    assert "try again" in response.json()["detail"]
+    assert "groq" not in response.json()["detail"].lower()  # no provider internals in the message
+
+
+@pytest.mark.parametrize("question", ["groq-down", "cohere-down", "weaviate-down"])
+def test_unreachable_services_get_a_friendly_message(question: str) -> None:
+    response = _client().post("/api/ask", json={"url": "https://example.com/", "question": question})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "An external service did not respond. Try again in a moment."}
+
+
+def test_page_assets_are_served_from_static_files() -> None:
+    client = _client()
+    html = client.get("/").text
+    assert 'src="/static/app.js"' in html
+    assert 'href="/static/styles.css"' in html
+    assert "<script>" not in html  # no inline script, which the content security policy would block
+    assert "javascript" in client.get("/static/app.js").headers["content-type"]
+    assert client.get("/static/styles.css").status_code == 200
+    assert client.get("/static/favicon.svg").status_code == 200
+
+
+def test_security_headers_are_set() -> None:
+    headers = _client().get("/").headers
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["Referrer-Policy"] == "no-referrer"
+    policy = headers["Content-Security-Policy"]
+    assert "script-src 'self'" in policy
+    assert "frame-ancestors 'none'" in policy
+    assert "unsafe-inline" not in policy
+
+
+def test_api_docs_are_not_restricted_by_the_content_security_policy() -> None:
+    response = _client().get("/docs")
+    assert response.status_code == 200
+    assert "Content-Security-Policy" not in response.headers
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
