@@ -114,6 +114,9 @@ def test_page_assets_are_served_from_static_files() -> None:
     assert "javascript" in client.get("/static/app.js").headers["content-type"]
     assert client.get("/static/styles.css").status_code == 200
     assert client.get("/static/favicon.svg").status_code == 200
+    # Browsers cache tab icons hard; the version in the address makes them fetch a changed icon.
+    assert 'href="/static/favicon.svg?v=' in html
+    assert client.get("/static/favicon.svg?v=2").status_code == 200
 
 
 def test_security_headers_are_set() -> None:

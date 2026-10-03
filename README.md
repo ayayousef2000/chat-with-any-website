@@ -139,6 +139,7 @@ The commit message must follow [Conventional Commits](https://www.conventionalco
 
 - Public modules, classes and functions have docstrings (Google style), enforced by Ruff.
 - Logic that does not need the network lives in plain functions that are unit-tested in `tests/`; the external services (Cohere, Weaviate, Groq) are replaced by fakes in tests.
+- The interface colours live in `app/static/styles.css` and follow the system light or dark setting. `tests/js/contrast.test.js` reads that file and checks the contrast of every text and background pair in both themes, so a colour change that hurts readability fails the build.
 - Secrets live only in `.env`, which is git-ignored.
 
 ## Contributing
