@@ -4,13 +4,15 @@ from dataclasses import replace
 
 import cohere
 
+from app.upstream import Retrier
 from app.vector_store import RetrievedChunk
 
 
 class CohereReranker:
     """Reorders retrieved chunks by relevance to a question using the Cohere rerank API."""
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, retrier: Retrier | None = None) -> None:
+        self._retrier = retrier or Retrier()
         self._client = cohere.ClientV2(api_key=api_key)
         self._model = model
 
@@ -28,10 +30,14 @@ class CohereReranker:
         if len(chunks) <= 1:
             return chunks
         documents = [f"{chunk.heading}\n{chunk.text}" if chunk.heading else chunk.text for chunk in chunks]
-        response = self._client.rerank(
-            model=self._model,
-            query=query,
-            documents=documents,
-            top_n=min(top_n, len(chunks)),
+        response = self._retrier.call(
+            lambda: self._client.rerank(
+                model=self._model,
+                query=query,
+                documents=documents,
+                top_n=min(top_n, len(chunks)),
+                request_options={"max_retries": 0},
+            ),
+            name="Cohere rerank",
         )
         return [replace(chunks[result.index], score=result.relevance_score) for result in response.results]

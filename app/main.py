@@ -5,38 +5,25 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import cohere.errors as cohere_errors
-import groq
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from weaviate import exceptions as weaviate_exceptions
 
 from app.config import get_settings
 from app.errors import AppError
 from app.janitor import Janitor
 from app.pipeline import Pipeline
+from app.upstream import RATE_LIMIT_ERRORS, UNAVAILABLE_ERRORS, public_error_details
 
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-RATE_LIMIT_ERRORS = (groq.RateLimitError, cohere_errors.TooManyRequestsError)
-UNAVAILABLE_ERRORS = (
-    groq.APIConnectionError,
-    groq.InternalServerError,
-    cohere_errors.ServiceUnavailableError,
-    cohere_errors.GatewayTimeoutError,
-    cohere_errors.InternalServerError,
-    weaviate_exceptions.WeaviateConnectionError,
-    weaviate_exceptions.WeaviateTimeoutError,
-)
 RATE_LIMIT_MESSAGE = (
-    "The AI services are receiving too many requests right now (free-tier limits). Wait about a minute and try again."
+    "The AI services are receiving too many requests right now (free-tier limits). Wait {wait} and try again."
 )
 UNAVAILABLE_MESSAGE = "An external service did not respond. Try again in a moment."
-RETRY_AFTER_SECONDS = "60"
 
 # Scripts and styles are served from this origin only, so injected markup could not run or load anything.
 CONTENT_SECURITY_POLICY = (
@@ -124,12 +111,13 @@ async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
 
 
 async def handle_rate_limit(request: Request, exc: Exception) -> JSONResponse:
-    """Tell the user an upstream service is rate limiting, and when to retry."""
+    """Tell the user an upstream service is rate limiting, and how long to wait."""
+    details = public_error_details(exc)
     logger.warning("Rate limited by an upstream service on %s: %s", request.url.path, type(exc).__name__)
     return JSONResponse(
         status_code=429,
-        content={"detail": RATE_LIMIT_MESSAGE},
-        headers={"Retry-After": RETRY_AFTER_SECONDS},
+        content={"detail": RATE_LIMIT_MESSAGE.format(wait=details["wait_text"])},
+        headers={"Retry-After": details["retry_after"]},
     )
 
 

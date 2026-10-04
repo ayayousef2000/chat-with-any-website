@@ -17,6 +17,7 @@ from app.extraction import load_page, normalize_url
 from app.llm import GroqChat
 from app.registry import PageRecord, PageRegistry, is_expired
 from app.reranking import CohereReranker
+from app.upstream import Retrier, RetryPolicy
 from app.vector_store import RetrievedChunk, StoredChunk, WeaviateStore
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,13 @@ class Pipeline:
     ) -> None:
         self._settings = settings
         self._clock = clock
+        retrier = Retrier(
+            RetryPolicy(
+                attempts=settings.retry_attempts,
+                max_delay=settings.retry_max_wait_seconds,
+                budget=settings.retry_budget_seconds,
+            )
+        )
         self._registry = registry or PageRegistry(settings.state_db_path)
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
@@ -142,6 +150,7 @@ class Pipeline:
             api_key=settings.cohere_api_key,
             model=settings.cohere_embed_model,
             dimension=settings.cohere_embed_dimension,
+            retrier=retrier,
         )
         self._store: Store = store or WeaviateStore(
             url=settings.weaviate_url,
@@ -150,8 +159,10 @@ class Pipeline:
         )
         self._reranker: Reranker | None = reranker
         if self._reranker is None and settings.rerank_enabled:
-            self._reranker = CohereReranker(api_key=settings.cohere_api_key, model=settings.cohere_rerank_model)
-        self._llm: Chat = llm or GroqChat(api_key=settings.groq_api_key, model=settings.groq_model)
+            self._reranker = CohereReranker(
+                api_key=settings.cohere_api_key, model=settings.cohere_rerank_model, retrier=retrier
+            )
+        self._llm: Chat = llm or GroqChat(api_key=settings.groq_api_key, model=settings.groq_model, retrier=retrier)
 
     def _lock_for(self, url: str) -> threading.Lock:
         """Return the lock that lets only one load, delete or cleanup of a URL run at a time."""

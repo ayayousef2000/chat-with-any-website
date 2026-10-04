@@ -103,6 +103,9 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `HYBRID_ALPHA` | `0.65` | Blend of vector and keyword search (1 = vector only, 0 = keyword only) |
 | `BROWSER_FALLBACK` | `false` | Retry thin pages in a headless browser |
 | `MIN_TEXT_CHARS` | `500` | Text length below which the browser fallback is tried |
+| `RETRY_ATTEMPTS` | `4` | Most tries per call to Cohere or Groq, including the first |
+| `RETRY_MAX_WAIT_SECONDS` | `20` | Longest single wait; a service that asks for more is not waited for |
+| `RETRY_BUDGET_SECONDS` | `45` | Longest total waiting per call |
 | `PAGE_IDLE_MINUTES` | `15` | Minutes without a question after which a stored page is deleted |
 | `PAGE_MAX_AGE_HOURS` | `12` | Age after which a stored page is deleted even if it is in use |
 | `MAX_STORED_CHUNKS` | `60000` | Size limit; least recently used pages are removed first |
@@ -159,6 +162,10 @@ Released under the [MIT License](LICENSE).
 ## How sources are shown
 
 A source is the whole section of the page that was used, but a question is usually about one fact in it. So each source first shows the line or sentences that best match the question and the answer, with the matching words highlighted, and the rest of the section is one click away (**Show full section**). The match is calculated in the browser from the question, the answer and the section text, so it costs no extra calls to any service. It compares three-letter groups instead of whole words, so it works with word forms, with Arabic, and with languages written without spaces. When the answer names code in backticks, the line that defines that name is chosen. If nothing matches well, the beginning of the section is shown instead.
+
+## Rate limits
+
+The free plans of Cohere and Groq limit how fast requests may come (Groq's free plan allows about 8,000 tokens a minute, which is a few questions). When a service answers "too many requests" or is briefly unavailable, the app waits for the time the service names, or a growing pause when it names none, and tries again, up to `RETRY_ATTEMPTS` tries and `RETRY_BUDGET_SECONDS` of waiting. While it waits, the page says it is still working. If a service asks for a longer wait than `RETRY_MAX_WAIT_SECONDS`, the app does not hold the visitor up: it answers with a message that says how long to wait ("Wait about 23 seconds and try again") and sends a `Retry-After` header. Errors that trying again cannot fix, such as a wrong key, are shown at once.
 
 ## How long pages are kept
 

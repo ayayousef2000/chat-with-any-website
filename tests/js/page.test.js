@@ -422,3 +422,29 @@ test("choosing a source scrolls to the top of its excerpt, which can be taller t
   list.showOnly(1);
   assert.equal(list.details.children[1].scrollOptions.block, "start");
 });
+
+test("startSlowNotice shows its message after the delay and can be cancelled", () => {
+  const original = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout };
+  const scheduled = [];
+  const cleared = [];
+  globalThis.setTimeout = (callback, delay) => (scheduled.push({ callback, delay }), scheduled.length);
+  globalThis.clearTimeout = (id) => cleared.push(id);
+  try {
+    const shown = [];
+    const cancel = page.startSlowNotice((message) => shown.push(message), "Still working", 8000);
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].delay, 8000);
+    assert.deepEqual(shown, [], "nothing is shown before the delay");
+
+    scheduled[0].callback();
+    assert.deepEqual(shown, ["Still working"]);
+
+    cancel();
+    assert.deepEqual(cleared, [1]);
+
+    page.startSlowNotice(() => {}, "x");
+    assert.equal(scheduled[1].delay, 8000, "the default delay is eight seconds");
+  } finally {
+    Object.assign(globalThis, original);
+  }
+});

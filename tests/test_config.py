@@ -69,3 +69,14 @@ def test_page_lifetime_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_page_lifetime_values_must_be_positive(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     with pytest.raises(ValidationError):
         _settings(monkeypatch, **{name: "0"})
+
+
+def test_retry_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _settings(monkeypatch)
+    assert (settings.retry_attempts, settings.retry_max_wait_seconds, settings.retry_budget_seconds) == (4, 20, 45)
+
+
+@pytest.mark.parametrize("name", ["RETRY_ATTEMPTS", "RETRY_MAX_WAIT_SECONDS", "RETRY_BUDGET_SECONDS"])
+def test_retry_values_must_be_positive(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    with pytest.raises(ValidationError):
+        _settings(monkeypatch, **{name: "0"})

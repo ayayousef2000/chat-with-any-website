@@ -146,5 +146,9 @@ def test_default_components_are_created_from_settings(settings: Settings) -> Non
     pipeline = Pipeline(settings, store=store, llm=FakeChat())
     assert isinstance(pipeline._embedder, CohereEmbedder)
     assert isinstance(pipeline._reranker, CohereReranker)
+    # The three services share one retry policy that comes from the settings.
+    assert pipeline._embedder._retrier.policy.attempts == settings.retry_attempts
+    assert pipeline._reranker._retrier.policy.max_delay == settings.retry_max_wait_seconds
+    assert pipeline._embedder._retrier is pipeline._reranker._retrier
     pipeline.close()
     assert store.closed

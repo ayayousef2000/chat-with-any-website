@@ -92,6 +92,15 @@ function confirmDialog(parts, { title, message, confirmLabel }) {
   });
 }
 
+// If a slow step takes longer than `delay` milliseconds, shows `message`. Returns a function that cancels it.
+// An answer can take long when the free plans of the AI services ask the app to wait.
+function startSlowNotice(setStatus, message, delay = 8000) {
+  const timer = setTimeout(() => setStatus(message), delay);
+  return () => clearTimeout(timer);
+}
+
+const SLOW_ANSWER_NOTICE = "Still working. The free plans of the AI services limit how fast questions are answered, so this can take up to a minute.";
+
 // Only absolute http(s) addresses may become links.
 function safeUrl(value) {
   return /^https?:\/\/[^\s]+$/i.test(value) ? value : null;
@@ -743,6 +752,7 @@ function init() {
     const typing = addTyping();
     setBusy(true);
     setStatus("Thinking…");
+    const cancelSlowNotice = startSlowNotice(setStatus, SLOW_ANSWER_NOTICE);
     try {
       const result = await askWithReload(postJson, page.url, question, () =>
         setStatus("The saved copy of the page expired. Loading it again…"),
@@ -754,6 +764,7 @@ function init() {
       addMessage("assistant error", friendlyError(error));
       questionInput.value = question; // keep the question so it can be sent again
     } finally {
+      cancelSlowNotice();
       setStatus("");
       setBusy(false);
       questionInput.focus();
@@ -834,6 +845,7 @@ function init() {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     HttpError,
+    startSlowNotice,
     normalizeForMatch,
     splitUnits,
     findPassage,

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from groq import Groq
 
 from app.citations import normalize_citations
+from app.upstream import Retrier
 from app.vector_store import RetrievedChunk
 
 SYSTEM_PROMPT = """You answer questions about a single web page.
@@ -23,8 +24,10 @@ Answer in the same language as the question."""
 class GroqChat:
     """Generates answers with a chat model served by Groq."""
 
-    def __init__(self, api_key: str, model: str) -> None:
-        self._client = Groq(api_key=api_key)
+    def __init__(self, api_key: str, model: str, retrier: Retrier | None = None) -> None:
+        self._retrier = retrier or Retrier()
+        # The client's own retries are off: retrying is done here, once, with a policy that suits a person waiting.
+        self._client = Groq(api_key=api_key, max_retries=0)
         self._model = model
 
     def answer(self, question: str, title: str, chunks: Sequence[RetrievedChunk]) -> str:
@@ -44,12 +47,15 @@ class GroqChat:
         )
         user_message = f"Page title: {title}\n\nExcerpts:\n{excerpts}\n\nQuestion: {question}"
 
-        completion = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.2,
+        completion = self._retrier.call(
+            lambda: self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.2,
+            ),
+            name="Groq answer",
         )
         return normalize_citations((completion.choices[0].message.content or "").strip())
