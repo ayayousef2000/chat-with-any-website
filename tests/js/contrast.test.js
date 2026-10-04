@@ -74,6 +74,7 @@ for (const [themeName, v] of Object.entries(themes())) {
       ["citation text on its chip", solid(v.cite), chip, 4.5],
       ["error text on the page", solid(v.error), page, 4.5],
       ["error text on panels", solid(v.error), surface, 4.5],
+      ["highlighted words in sources", solid(v.text), over(v.flash, surface), 4.5],
       // The title is large text, which only needs 3:1, and fades from the text color through emerald to cyan.
       ["title, start of the gradient", solid(v.text), page, 3],
       ["title, middle of the gradient", solid(v.cite), page, 3],

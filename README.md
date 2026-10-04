@@ -156,6 +156,10 @@ Work happens on branches created from `develop` and is merged into `develop` thr
 
 Released under the [MIT License](LICENSE).
 
+## How sources are shown
+
+A source is the whole section of the page that was used, but a question is usually about one fact in it. So each source first shows the line or sentences that best match the question and the answer, with the matching words highlighted, and the rest of the section is one click away (**Show full section**). The match is calculated in the browser from the question, the answer and the section text, so it costs no extra calls to any service. It compares three-letter groups instead of whole words, so it works with word forms, with Arabic, and with languages written without spaces. When the answer names code in backticks, the line that defines that name is chosen. If nothing matches well, the beginning of the section is shown instead.
+
 ## How long pages are kept
 
 Each address is stored once, and everyone who asks about the same address shares that stored copy, so a second visitor does not wait or use more API calls. Different addresses are kept apart, and every question only searches the page it is about.
