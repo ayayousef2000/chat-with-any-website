@@ -108,6 +108,7 @@ function plainText(markdown) {
     .replace(/(\*\*|__)(.+?)\1/g, "$2")
     .replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, "$1$2")
     .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/\\([\\`*_{}[\]()#+\-.!|>~<])/g, "$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -220,6 +221,275 @@ function renderMarkdown(container, text, cite) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Finding the part of a source that answers the question
+//
+// A source is a whole section of a page, but a question is usually about one fact in it. The part that matches
+// the question and the answer best is shown first, highlighted, with the full section one click away. Matching
+// compares three-letter groups instead of whole words, so it works across word forms ("ديانته" and "الديانة"),
+// across languages written without spaces, and needs no outside service.
+// ---------------------------------------------------------------------------------------------------
+
+const SHORT_SOURCE = 320; // a source this short is shown whole
+const MAX_UNIT = 240; // a longer line is split into sentences
+const HARD_LIMIT = 320; // and a sentence longer than this is split at a space
+const MAX_CONTEXT = 420; // a passage grows with neighbouring sentences up to about this length
+let sourceCounter = 0;
+
+// Lowercases and removes accents, Arabic vowel marks and variant letter forms, so word forms can be compared.
+function normalizeForMatch(text) {
+  return text
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\u0671/g, "\u0627")
+    .replace(/\u0649/g, "\u064a")
+    .replace(/\u0629/g, "\u0647")
+    .replace(/\u0640/g, "");
+}
+
+function gramsOfToken(token) {
+  if (token.length < 3) return /\d/.test(token) ? [token] : [];
+  const grams = [];
+  for (let i = 0; i <= token.length - 3; i += 1) grams.push(token.slice(i, i + 3));
+  return grams;
+}
+
+// The set of three-letter groups of every word in a text (short numbers count as they are).
+function gramSet(text) {
+  const grams = new Set();
+  for (const token of normalizeForMatch(text).match(/[\p{L}\p{N}]+/gu) || []) {
+    for (const gram of gramsOfToken(token)) grams.add(gram);
+  }
+  return grams;
+}
+
+function splitAtSpaces(text) {
+  const parts = [];
+  let rest = text;
+  while (rest.length > HARD_LIMIT) {
+    const cut = rest.lastIndexOf(" ", HARD_LIMIT);
+    const at = cut > HARD_LIMIT / 2 ? cut : HARD_LIMIT;
+    parts.push(rest.slice(0, at).trim());
+    rest = rest.slice(at).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+// Cuts a source into lines, then long lines into sentences (including Arabic, Chinese and Japanese stops).
+// Each unit remembers the line it came from.
+function splitUnitObjects(plain) {
+  const units = [];
+  plain.split("\n").forEach((line, lineIndex) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const pieces = trimmed.length <= MAX_UNIT ? [trimmed] : trimmed.split(/(?<=[.!?\u061f\u06d4\u061b])\s+|(?<=[\u3002\uff01\uff1f])\s*/u);
+    for (const piece of pieces) {
+      const sentence = piece.trim();
+      if (!sentence) continue;
+      for (const part of sentence.length > HARD_LIMIT ? splitAtSpaces(sentence) : [sentence]) {
+        units.push({ text: part, line: lineIndex });
+      }
+    }
+  });
+  return units;
+}
+
+function splitUnits(plain) {
+  return splitUnitObjects(plain).map((unit) => unit.text);
+}
+
+// Names of code in backticks in the answer, such as `Path.exists()` -> "exists".
+function codeNames(answer) {
+  const names = new Set();
+  for (const match of answer.matchAll(/`([^`\n]+)`/g)) {
+    const name = match[1].replace(/\(.*$/, "").split(".").pop().trim();
+    if (/^[\p{L}_][\p{L}\p{N}_]{2,}$/u.test(name)) names.add(name);
+  }
+  return names;
+}
+
+function escapeForRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Finds the part of `plain` that best matches the question and the answer, or null if nothing does.
+// The part is a line or sentence plus, in running text, the sentences around it for context. Groups that appear
+// in many lines count for little (the topic of the page is in most of them), and groups that appear in few count for
+// a lot. A match needs at least three shared groups covering a tenth of the question and answer, so that a chance
+// overlap such as "ics" in two unrelated words is not taken for an answer. If the answer names code in backticks
+// (`Path.exists()`), the line that defines that name wins, together with the line after it.
+function findPassage(plain, question, answer) {
+  const parts = splitUnitObjects(plain);
+  if (!parts.length) return null;
+  const units = parts.map((part) => part.text);
+  const query = gramSet(`${question} ${answer.replace(/\[\d+\]/g, " ")}`);
+  const unitGrams = units.map(gramSet);
+  const lines = new Map();
+  for (const grams of unitGrams) for (const gram of grams) lines.set(gram, (lines.get(gram) || 0) + 1);
+
+  const scoreOf = (i) => {
+    let sum = 0;
+    let count = 0;
+    for (const gram of unitGrams[i]) {
+      if (!query.has(gram)) continue;
+      sum += Math.log(1 + units.length / lines.get(gram)) ** 2;
+      count += 1;
+    }
+    return { score: sum / unitGrams[i].size ** 0.15, count };
+  };
+
+  // Lines that define a name the answer mentions as code are preferred over lines that merely resemble the question.
+  // Names are tried in the order the answer gives them, because the first one is what the answer is about.
+  const all = units.map((_, i) => i);
+  let named = [];
+  let byDefinition = [];
+  for (const name of codeNames(answer)) {
+    const escaped = escapeForRegExp(name);
+    const starts = new RegExp(`^[\\p{L}\\p{N}_.]*${escaped}\\s*\\(`, "iu");
+    const calls = new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}\\s*\\(`, "iu");
+    const mentions = new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}($|[^\\p{L}\\p{N}_])`, "iu");
+    byDefinition = all.filter((i) => starts.test(units[i]));
+    if (!byDefinition.length) byDefinition = all.filter((i) => calls.test(units[i]));
+    named = byDefinition.length ? byDefinition : all.filter((i) => mentions.test(units[i]));
+    if (named.length) break;
+  }
+
+  let index = -1;
+  let best = -1;
+  let shared = 0;
+  for (const i of named.length ? named : all) {
+    const { score, count } = scoreOf(i);
+    if (score > best) {
+      best = score;
+      index = i;
+      shared = count;
+    }
+  }
+  if (index < 0) return null;
+  if (!named.length && (best <= 0 || shared < 3 || shared / query.size < 0.1)) return null;
+
+  // Context: neighbouring sentences of the same line, and after a definition the line that explains it.
+  let first = index;
+  let last = index;
+  let length = units[index].length;
+  for (let grew = true; grew; ) {
+    grew = false;
+    if (first > 0 && parts[first - 1].line === parts[index].line && length + units[first - 1].length < MAX_CONTEXT) {
+      first -= 1;
+      length += units[first].length;
+      grew = true;
+    }
+    if (last < units.length - 1 && parts[last + 1].line === parts[index].line && length + units[last + 1].length < MAX_CONTEXT) {
+      last += 1;
+      length += units[last].length;
+      grew = true;
+    }
+  }
+  if (byDefinition.includes(index)) {
+    while (last < units.length - 1 && length + units[last + 1].length < MAX_CONTEXT) {
+      last += 1;
+      length += units[last].length;
+    }
+  }
+  const unit = units.slice(first, last + 1).reduce((text, piece, i) => {
+    if (i === 0) return piece;
+    return text + (parts[first + i].line === parts[first + i - 1].line ? " " : "\n") + piece;
+  }, "");
+
+  // A word is highlighted if most of it matches and it is not a word that fills the whole section.
+  const specific = Math.max(1, units.length * 0.15);
+  const matches = (word) => {
+    const grams = gramsOfToken(normalizeForMatch(word));
+    const hits = grams.filter((gram) => query.has(gram));
+    return grams.length > 0 && hits.length / grams.length >= 0.6 && hits.some((gram) => (lines.get(gram) || 0) <= specific);
+  };
+  return { units, index, first, last, unit, matches };
+}
+
+// The first lines of a source, up to about 280 characters, for when nothing in it matches.
+function leadingPassage(plain) {
+  let text = "";
+  for (const unit of splitUnits(plain)) {
+    if (text && text.length + unit.length > 280) break;
+    text += (text ? "\n" : "") + unit;
+  }
+  return text;
+}
+
+// Appends `text` to `container` with the words that match the question and the answer wrapped in <mark>.
+function appendHighlighted(container, text, matches) {
+  let last = 0;
+  for (const word of text.matchAll(/[\p{L}\p{M}\p{N}]+/gu)) {
+    if (!matches(word[0])) continue;
+    if (word.index > last) container.append(text.slice(last, word.index));
+    const mark = createElement("mark");
+    mark.textContent = word[0];
+    container.append(mark);
+    last = word.index + word[0].length;
+  }
+  if (last < text.length) container.append(text.slice(last));
+}
+
+// The whole section, with the passage that answers the question marked.
+function appendFullSection(container, plain, passage) {
+  const at = passage ? plain.indexOf(passage) : -1;
+  if (at < 0) {
+    container.textContent = plain;
+    return;
+  }
+  const mark = createElement("mark", "passage");
+  mark.textContent = passage;
+  container.append(plain.slice(0, at), mark, plain.slice(at + passage.length));
+}
+
+// One source: its label and either its whole (short) text, or the matching passage with a toggle for the rest.
+function buildSourceItem(source, options) {
+  const item = createElement("div", "source");
+  item.dir = "auto";
+  const label = createElement("span", "source-label");
+  label.textContent = source.heading ? `[${source.number}] ${plainText(source.heading)}` : `[${source.number}]`;
+  item.append(label);
+
+  const plain = plainText(source.text);
+  const full = createElement("div", "source-text");
+  if (plain.length <= SHORT_SOURCE) {
+    full.textContent = plain;
+    item.append(full);
+    return item;
+  }
+
+  const found = findPassage(plain, options.question || "", options.answer || "");
+  const passage = createElement("div", "source-passage");
+  if (found) {
+    if (found.first > 0) passage.append("\u2026 ");
+    appendHighlighted(passage, found.unit, found.matches);
+    if (found.last < found.units.length - 1) passage.append(" \u2026");
+  } else {
+    passage.append(leadingPassage(plain), " \u2026");
+  }
+  appendFullSection(full, plain, found ? found.unit : null);
+  full.hidden = true;
+  sourceCounter += 1;
+  full.id = `source-text-${sourceCounter}`;
+
+  const toggle = createElement("button", "link toggle");
+  toggle.type = "button";
+  toggle.textContent = "Show full section";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-controls", full.id);
+  toggle.addEventListener("click", () => {
+    const expand = full.hidden;
+    full.hidden = !expand;
+    passage.hidden = expand;
+    toggle.textContent = expand ? "Show less" : "Show full section";
+    toggle.setAttribute("aria-expanded", String(expand));
+  });
+  item.append(passage, toggle, full);
+  return item;
+}
+
 // Builds the collapsible source list. Clicking a citation shows only that source; clicking the
 // "Sources" line shows all of them.
 function buildSources(sources, options = {}) {
@@ -239,13 +509,7 @@ function buildSources(sources, options = {}) {
   }
 
   sources.forEach((source) => {
-    const item = createElement("div", "source");
-    item.dir = "auto";
-    const label = createElement("span", "source-label");
-    label.textContent = source.heading ? `[${source.number}] ${plainText(source.heading)}` : `[${source.number}]`;
-    const body = createElement("div", "source-text");
-    body.textContent = plainText(source.text);
-    item.append(label, body);
+    const item = buildSourceItem(source, options);
     details.append(item);
     items.set(source.number, item);
   });
@@ -285,7 +549,7 @@ function buildSources(sources, options = {}) {
 // Builds an assistant answer: Markdown text whose [n] markers are buttons that reveal the matching source.
 function buildAnswer(text, sources, options = {}) {
   const body = createElement("div", "md");
-  const sourceList = sources.length ? buildSources(sources, options) : null;
+  const sourceList = sources.length ? buildSources(sources, { ...options, answer: text }) : null;
 
   function cite(number) {
     if (!sourceList || !sourceList.has(number)) return null;
@@ -412,10 +676,10 @@ function init() {
     return element;
   }
 
-  function addAnswer(text, sources) {
+  function addAnswer(text, sources, question) {
     clearEmptyState();
     const element = createElement("div", "message assistant");
-    const answer = buildAnswer(text, sources, { reduceMotion: reduceMotion() });
+    const answer = buildAnswer(text, sources, { reduceMotion: reduceMotion(), question });
     element.append(answer.body);
     if (answer.details) element.append(answer.details);
     const row = withAvatar(element);
@@ -484,7 +748,7 @@ function init() {
         setStatus("The saved copy of the page expired. Loading it again…"),
       );
       typing.remove();
-      addAnswer(result.answer, result.sources);
+      addAnswer(result.answer, result.sources, question);
     } catch (error) {
       typing.remove();
       addMessage("assistant error", friendlyError(error));
@@ -570,6 +834,10 @@ function init() {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     HttpError,
+    normalizeForMatch,
+    splitUnits,
+    findPassage,
+    codeNames,
     withAvatar,
     confirmDialog,
     formatAge,

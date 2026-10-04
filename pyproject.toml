@@ -68,8 +68,10 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "S101", "S104"]
+"tests/**" = ["D", "S101", "S104", "RUF001"]  # RUF001: tests use real Arabic, Chinese and Cyrillic text
 "eval/**" = ["E402"]
+# The list of "edit" link words is real text in many languages, with look-alike characters on purpose.
+"app/cleaning.py" = ["RUF001"]
 
 [tool.ruff.format]
 docstring-code-format = true

@@ -321,12 +321,27 @@ summary:focus-visible { outline: 2px solid var(--cite); outline-offset: 2px; }
 .source.highlight { background: var(--flash); }
 .source-label { display: block; margin-bottom: 4px; color: var(--cite); font-weight: 700; }
 
+.source-passage,
 .source-text {
   color: var(--text);
   font: 0.95rem/1.55 var(--serif);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.source-passage[hidden], .source-text[hidden] { display: none; }
+
+/* The words and the passage that match the question */
+mark {
+  padding: 0 0.12em;
+  color: inherit;
+  background: var(--flash);
+  border-radius: 4px;
+}
+
+mark.passage { padding: 0.1em 0; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+
+button.toggle { display: block; margin-top: 6px; font: 0.78rem var(--mono); }
 
 button.cite {
   min-width: 1.75rem;
