@@ -136,6 +136,7 @@ def test_page_assets_are_served_from_static_files() -> None:
     assert 'src="/static/app.js"' in html
     assert 'href="/static/styles.css"' in html
     assert '<dialog id="confirm-dialog"' in html
+    assert 'id="page-link" dir="auto"' in html  # a title in another script keeps its own word order
     assert "<script>" not in html  # no inline script, which the content security policy would block
     assert "javascript" in client.get("/static/app.js").headers["content-type"]
     assert client.get("/static/styles.css").status_code == 200
