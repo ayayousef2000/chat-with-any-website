@@ -68,8 +68,9 @@ class FakeElement {
     this.listeners.click({ preventDefault() {} });
   }
 
-  scrollIntoView() {
+  scrollIntoView(options) {
     this.scrolled = true;
+    this.scrollOptions = options;
   }
 
   find(predicate, found = []) {

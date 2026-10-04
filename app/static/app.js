@@ -100,6 +100,8 @@ function safeUrl(value) {
 // Strips Markdown symbols so source excerpts read as plain text.
 function plainText(markdown) {
   return markdown
+    .replace(/^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*$\n?/gm, "")
+    .replace(/^[ \t]*\|(.*)$/gm, (_, row) => row.replace(/\|\s*$/, "").split("|").map((cell) => cell.trim()).filter(Boolean).join("  \u00b7  "))
     .replace(/```\w*\n?/g, "")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/\[([^\]]+)\]\(https?:\/\/[^)]*\)/g, "$1")
@@ -188,12 +190,14 @@ function renderMarkdown(container, text, cite) {
       container.append(pre);
     } else if (HEADING.test(line)) {
       const heading = createElement("p", "md-heading");
+      heading.dir = "auto";
       renderInline(heading, line.match(HEADING)[1], cite);
       container.append(heading);
       i += 1;
     } else if (BULLET.test(line) || ORDERED.test(line)) {
       const marker = ORDERED.test(line) ? ORDERED : BULLET;
       const list = createElement(marker === ORDERED ? "ol" : "ul");
+      list.dir = "auto";
       while (i < lines.length && marker.test(lines[i])) {
         const item = createElement("li");
         renderInline(item, lines[i].replace(marker, ""), cite);
@@ -203,6 +207,7 @@ function renderMarkdown(container, text, cite) {
       container.append(list);
     } else {
       const paragraph = createElement("p");
+      paragraph.dir = "auto";
       let first = true;
       while (i < lines.length && lines[i].trim() && (first || !startsBlock(lines[i]))) {
         if (!first) paragraph.append(createElement("br"));
@@ -235,6 +240,7 @@ function buildSources(sources, options = {}) {
 
   sources.forEach((source) => {
     const item = createElement("div", "source");
+    item.dir = "auto";
     const label = createElement("span", "source-label");
     label.textContent = source.heading ? `[${source.number}] ${plainText(source.heading)}` : `[${source.number}]`;
     const body = createElement("div", "source-text");
@@ -266,7 +272,8 @@ function buildSources(sources, options = {}) {
     details.open = true;
     render();
     const item = items.get(number);
-    item.scrollIntoView({ block: "nearest", behavior: options.reduceMotion ? "auto" : "smooth" });
+    // Start at the top of the excerpt, which may be taller than the visible part of the chat.
+    item.scrollIntoView({ block: "start", behavior: options.reduceMotion ? "auto" : "smooth" });
     item.classList.add("highlight");
     setTimeout(() => item.classList.remove("highlight"), 1600);
   }
@@ -398,6 +405,7 @@ function init() {
   function addMessage(role, text) {
     clearEmptyState();
     const element = createElement("div", `message ${role}`);
+    element.dir = "auto";
     element.textContent = text;
     messagesEl.append(role.includes("assistant") ? withAvatar(element) : element);
     scrollToBottom();

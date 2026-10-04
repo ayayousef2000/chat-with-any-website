@@ -385,3 +385,40 @@ test("withAvatar puts the assistant icon before the message in one row", () => {
   assert.match(avatar.src, /^\/static\/favicon\.svg\?v=\d+$/);
   assert.equal(message, bubble);
 });
+
+test("plainText turns tables into plain rows and drops the separator line", () => {
+  const table = "Intro\n| Name | Born |\n|---|---|\n| Ibn Khaldun | 1332 |\nEnd";
+  assert.equal(page.plainText(table), "Intro\nName  \u00b7  Born\nIbn Khaldun  \u00b7  1332\nEnd");
+  assert.equal(page.plainText("| | |\n|---|---|\nText"), "Text");
+  assert.equal(page.plainText("| a | b |\n| :--- | ---: |\n| c | d |"), "a  \u00b7  b\nc  \u00b7  d");
+});
+
+test("plainText keeps blank lines between paragraphs and ordinary dashes", () => {
+  assert.equal(page.plainText("One\n\nTwo - three -- four\n\nFive"), "One\n\nTwo - three -- four\n\nFive");
+});
+
+test("text blocks pick their own direction, so Arabic and Hebrew are aligned correctly", () => {
+  const container = new FakeElement("div");
+  page.renderMarkdown(container, "## Title\nParagraph\n\n- item one\n\n1. first", () => null);
+  const blocks = container.children;
+  assert.deepEqual(
+    blocks.map((block) => [block.tag, block.dir]),
+    [
+      ["p", "auto"],
+      ["p", "auto"],
+      ["ul", "auto"],
+      ["ol", "auto"],
+    ],
+  );
+});
+
+test("each source is aligned by its own language", () => {
+  const list = page.buildSources([{ number: 1, heading: "ابن خلدون", text: "نص عربي" }]);
+  assert.equal(list.details.children[1].dir, "auto");
+});
+
+test("choosing a source scrolls to the top of its excerpt, which can be taller than the chat", () => {
+  const list = page.buildSources([{ number: 1, heading: "", text: "long text" }]);
+  list.showOnly(1);
+  assert.equal(list.details.children[1].scrollOptions.block, "start");
+});
