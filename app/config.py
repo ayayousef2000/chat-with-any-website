@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     top_k: int = Field(default=5, gt=0)
     hybrid_alpha: float = Field(default=0.65, ge=0, le=1)
 
+    # Trying again when a service says "too many requests" or is briefly unavailable
+    retry_attempts: int = Field(default=4, ge=1)
+    retry_max_wait_seconds: float = Field(default=20, gt=0)
+    retry_budget_seconds: float = Field(default=45, gt=0)
+
     # Lifetime of stored pages
     page_idle_minutes: float = Field(default=15, gt=0)
     page_max_age_hours: float = Field(default=12, gt=0)

@@ -16,6 +16,9 @@ _REQUEST = httpx.Request("POST", "https://api.example.invalid/v1")
 UPSTREAM_ERRORS: dict[str, Callable[[], Exception]] = {
     "groq-rate-limit": lambda: groq.RateLimitError("limit", response=httpx.Response(429, request=_REQUEST), body=None),
     "cohere-rate-limit": lambda: cohere_errors.TooManyRequestsError(body={"message": "limit"}),
+    "groq-rate-limit-23": lambda: groq.RateLimitError(
+        "limit", response=httpx.Response(429, request=_REQUEST, headers={"retry-after": "23"}), body=None
+    ),
     "groq-down": lambda: groq.APIConnectionError(request=_REQUEST),
     "cohere-down": lambda: cohere_errors.ServiceUnavailableError(body={"message": "down"}),
     "weaviate-down": lambda: weaviate_exceptions.WeaviateConnectionError("down"),
@@ -185,3 +188,16 @@ def test_a_stored_page_can_be_deleted() -> None:
 
 def test_deleting_requires_an_address() -> None:
     assert _client().delete("/api/page").status_code == 422
+
+
+def test_the_wait_the_service_asked_for_is_shown_and_sent_as_a_header() -> None:
+    response = _client().post("/api/ask", json={"url": "https://example.com/", "question": "groq-rate-limit-23"})
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "23"
+    assert "Wait about 23 seconds and try again" in response.json()["detail"]
+
+
+def test_without_a_named_wait_the_message_says_about_a_minute() -> None:
+    response = _client().post("/api/ask", json={"url": "https://example.com/", "question": "groq-rate-limit"})
+    assert response.headers["Retry-After"] == "60"
+    assert "Wait about a minute and try again" in response.json()["detail"]
