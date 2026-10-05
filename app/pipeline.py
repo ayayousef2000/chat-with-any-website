@@ -17,7 +17,7 @@ from app.extraction import load_page, normalize_url
 from app.llm import GroqChat
 from app.registry import PageRecord, PageRegistry, is_expired
 from app.reranking import CohereReranker
-from app.upstream import Retrier, RetryPolicy
+from app.upstream import RETRYABLE_ERRORS, Retrier, RetryPolicy
 from app.vector_store import RetrievedChunk, StoredChunk, WeaviateStore
 
 logger = logging.getLogger(__name__)
@@ -159,10 +159,20 @@ class Pipeline:
         )
         self._reranker: Reranker | None = reranker
         if self._reranker is None and settings.rerank_enabled:
-            self._reranker = CohereReranker(
-                api_key=settings.cohere_api_key, model=settings.cohere_rerank_model, retrier=retrier
+            # Reranking only improves the order of the excerpts, so it is not worth a long wait: when it fails,
+            # the search order is used (see _best_chunks).
+            quick_retrier = Retrier(
+                RetryPolicy(attempts=2, max_delay=2.0, budget=3.0), sleep=retrier.sleep, jitter=retrier.jitter
             )
-        self._llm: Chat = llm or GroqChat(api_key=settings.groq_api_key, model=settings.groq_model, retrier=retrier)
+            self._reranker = CohereReranker(
+                api_key=settings.cohere_api_key, model=settings.cohere_rerank_model, retrier=quick_retrier
+            )
+        self._llm: Chat = llm or GroqChat(
+            api_key=settings.groq_api_key,
+            model=settings.groq_model,
+            retrier=retrier,
+            backup_keys=settings.groq_backup_keys,
+        )
 
     def _lock_for(self, url: str) -> threading.Lock:
         """Return the lock that lets only one load, delete or cleanup of a URL run at a time."""
@@ -262,14 +272,24 @@ class Pipeline:
         if not chunks:
             return Answer(answer="I couldn't find anything relevant on this page.", sources=[], retrieved=[])
 
-        if self._reranker:
-            chunks = self._reranker.rerank(question, chunks, self._settings.top_k)
-        else:
-            chunks = chunks[: self._settings.top_k]
+        chunks = self._best_chunks(question, chunks)
 
         answer = self._llm.answer(question, chunks[0].title, chunks)
         sources = [CitedSource(number=n, chunk=chunks[n - 1]) for n in cited_numbers(answer, len(chunks))]
         return Answer(answer=answer, sources=sources, retrieved=chunks)
+
+    def _best_chunks(self, question: str, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        """Pick the excerpts to answer from: the reranked best ones, or the top of the search order.
+
+        A reranking service that is limited or briefly down must not stop a question from being answered, so in
+        that case the order the search gave is used.
+        """
+        if self._reranker:
+            try:
+                return self._reranker.rerank(question, chunks, self._settings.top_k)
+            except RETRYABLE_ERRORS as error:
+                logger.warning("Reranking failed with %s; using the search order instead", type(error).__name__)
+        return chunks[: self._settings.top_k]
 
     def forget(self, url: str) -> bool:
         """Delete the stored copy of a page right away.

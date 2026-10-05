@@ -80,3 +80,13 @@ def test_retry_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_retry_values_must_be_positive(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     with pytest.raises(ValidationError):
         _settings(monkeypatch, **{name: "0"})
+
+
+def test_backup_groq_keys_are_read_in_order_without_blanks(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _settings(monkeypatch, GROQ_BACKUP_API_KEYS=" k2, k3 ,,k4,")
+    assert settings.groq_backup_keys == ["k2", "k3", "k4"]
+
+
+def test_there_are_no_backup_groq_keys_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GROQ_BACKUP_API_KEYS", raising=False)
+    assert _settings(monkeypatch).groq_backup_keys == []

@@ -121,7 +121,7 @@ def test_index_page_is_served() -> None:
 def test_rate_limits_get_a_friendly_message_and_retry_hint(question: str) -> None:
     response = _client().post("/api/ask", json={"url": "https://example.com/", "question": question})
     assert response.status_code == 429
-    assert response.headers["Retry-After"] == "60"
+    assert response.headers["Retry-After"] == "10"
     assert "try again" in response.json()["detail"]
     assert "groq" not in response.json()["detail"].lower()  # no provider internals in the message
 
@@ -194,10 +194,10 @@ def test_the_wait_the_service_asked_for_is_shown_and_sent_as_a_header() -> None:
     response = _client().post("/api/ask", json={"url": "https://example.com/", "question": "groq-rate-limit-23"})
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "23"
-    assert "Wait about 23 seconds and try again" in response.json()["detail"]
+    assert "Please try again in about 23 seconds" in response.json()["detail"]
 
 
-def test_without_a_named_wait_the_message_says_about_a_minute() -> None:
+def test_without_a_named_wait_the_message_says_a_few_seconds() -> None:
     response = _client().post("/api/ask", json={"url": "https://example.com/", "question": "groq-rate-limit"})
-    assert response.headers["Retry-After"] == "60"
-    assert "Wait about a minute and try again" in response.json()["detail"]
+    assert response.headers["Retry-After"] == "10"
+    assert "Please try again in a few seconds" in response.json()["detail"]

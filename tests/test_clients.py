@@ -11,7 +11,7 @@ import pytest
 from app.embeddings import CohereEmbedder
 from app.llm import SYSTEM_PROMPT, GroqChat
 from app.reranking import CohereReranker
-from app.upstream import Retrier, RetryPolicy
+from app.upstream import Retrier, RetryPolicy, retry_after_seconds
 from app.vector_store import RetrievedChunk
 
 
@@ -94,6 +94,11 @@ def test_rerank_skips_api_for_single_chunk() -> None:
     assert fake.rerank_calls == []
 
 
+def _fake_groq(create: Any) -> Any:
+    """A stand-in for a Groq client whose chat completions are made by ``create``."""
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+
 def test_groq_prompt_contains_numbered_excerpts_and_question() -> None:
     captured: dict[str, Any] = {}
 
@@ -102,7 +107,7 @@ def test_groq_prompt_contains_numbered_excerpts_and_question() -> None:
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="  Answer [1]  "))])
 
     chat = GroqChat(api_key="k", model="gpt-model")
-    chat._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))  # type: ignore[assignment]
+    chat._clients = [_fake_groq(create)]
 
     answer = chat.answer("What is it?", "Page", [_chunk(0), _chunk(1, heading="")])
 
@@ -121,7 +126,7 @@ def test_groq_answer_citations_are_normalized() -> None:
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
     chat = GroqChat(api_key="k", model="m")
-    chat._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))  # type: ignore[assignment]
+    chat._clients = [_fake_groq(create)]
 
     assert chat.answer("When?", "Page", [_chunk(0), _chunk(1)]) == "It was 2020 [1][2]."
 
@@ -222,7 +227,7 @@ def test_the_answer_is_requested_again_after_a_rate_limit() -> None:
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Answer [1]"))])
 
     chat = GroqChat(api_key="k", model="m", retrier=retrier)
-    chat._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))  # type: ignore[assignment]
+    chat._clients = [_fake_groq(create)]
 
     assert chat.answer("Why?", "Page", [_chunk(0)]) == "Answer [1]"
     assert pauses == [2.0]
@@ -235,7 +240,7 @@ def test_the_answer_error_reaches_the_caller_when_every_attempt_is_limited() -> 
         raise _groq_limit()
 
     chat = GroqChat(api_key="k", model="m", retrier=retrier)
-    chat._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))  # type: ignore[assignment]
+    chat._clients = [_fake_groq(create)]
 
     with pytest.raises(groq.RateLimitError):
         chat.answer("Why?", "Page", [_chunk(0)])
@@ -243,4 +248,234 @@ def test_the_answer_error_reaches_the_caller_when_every_attempt_is_limited() -> 
 
 
 def test_the_groq_client_leaves_retrying_to_the_retrier() -> None:
-    assert GroqChat(api_key="k", model="m")._client.max_retries == 0
+    assert all(client.max_retries == 0 for client in GroqChat(api_key="k", model="m", backup_keys=["k2"])._clients)
+
+
+# --- several Groq keys, used in turn ----------------------------------------------------------------------------
+
+
+class Keys:
+    """Six fake Groq clients that record their use; the ones named in ``limited`` answer "too many requests"."""
+
+    def __init__(self, count: int = 6, retry_after: str | None = "30") -> None:
+        self.used: list[int] = []
+        self.limited: set[int] = set()
+        self.retry_after = retry_after
+        self.clients = [_fake_groq(self._create_for(number)) for number in range(count)]
+
+    def _create_for(self, number: int) -> Any:
+        def create(**kwargs: Any) -> Any:
+            self.used.append(number)
+            if number in self.limited:
+                headers = {} if self.retry_after is None else {"retry-after": self.retry_after}
+                response = httpx.Response(429, request=_REQUEST, headers=headers)
+                raise groq.RateLimitError("limit", response=response, body=None)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=f"Answer {number} [1]"))])
+
+        return create
+
+
+def _chat_with(keys: Keys, retrier: Retrier | None = None, clock: Any = lambda: 0.0, count: int = 6) -> GroqChat:
+    chat = GroqChat(
+        api_key="k1", model="m", backup_keys=[f"k{n}" for n in range(2, count + 1)], retrier=retrier, clock=clock
+    )
+    chat._clients = keys.clients
+    return chat
+
+
+def _ask(chat: GroqChat) -> str:
+    return chat.answer("Why?", "Page", [_chunk(0)])
+
+
+def test_the_first_key_is_used_until_its_limit_is_reached() -> None:
+    keys = Keys()
+    chat = _chat_with(keys)
+
+    assert [_ask(chat) for _ in range(3)] == ["Answer 0 [1]"] * 3
+    assert keys.used == [0, 0, 0]
+
+
+def test_each_key_takes_over_when_the_one_before_is_limited() -> None:
+    keys = Keys()
+    chat = _chat_with(keys)
+
+    keys.limited = {0}
+    assert _ask(chat) == "Answer 1 [1]"
+    assert keys.used == [0, 1]  # the request that hit the limit moved on at once, with no waiting
+
+    keys.used.clear()
+    assert _ask(chat) == "Answer 1 [1]"
+    assert keys.used == [1]  # the first key is resting, so it is not asked again
+
+    keys.used.clear()
+    keys.limited = {0, 1}
+    assert _ask(chat) == "Answer 2 [1]"
+    assert keys.used == [1, 2]
+
+    keys.used.clear()
+    keys.limited = {0, 1, 2, 3, 4}
+    assert _ask(chat) == "Answer 5 [1]"
+    assert keys.used == [2, 3, 4, 5]  # the third key is limited now, as are the fourth and fifth; the sixth answers
+
+    keys.used.clear()
+    assert _ask(chat) == "Answer 5 [1]"
+    assert keys.used == [5]  # every earlier key is resting, so only the sixth is asked
+
+
+def test_after_the_last_key_the_first_is_used_again_once_it_has_recovered() -> None:
+    keys = Keys(count=3, retry_after="30")
+    now = [0.0]
+    chat = _chat_with(keys, clock=lambda: now[0], count=3)
+
+    keys.limited = {0, 1}
+    assert _ask(chat) == "Answer 2 [1]"
+    assert keys.used == [0, 1, 2]
+
+    keys.used.clear()
+    keys.limited = {2}
+    now[0] = 31.0  # the first and second keys have recovered
+    assert _ask(chat) == "Answer 0 [1]"
+    assert keys.used == [2, 0]  # the circle went on from the third key to the first
+
+
+def test_a_key_that_has_recovered_is_not_returned_to_while_the_current_one_still_works() -> None:
+    keys = Keys(count=3, retry_after="30")
+    now = [0.0]
+    chat = _chat_with(keys, clock=lambda: now[0], count=3)
+
+    keys.limited = {0}
+    assert _ask(chat) == "Answer 1 [1]"
+    keys.limited = set()
+    now[0] = 31.0  # the first key has recovered, but the second one is in use and not limited
+    keys.used.clear()
+    assert [_ask(chat) for _ in range(2)] == ["Answer 1 [1]"] * 2
+    assert keys.used == [1, 1]
+
+
+def test_a_key_that_is_still_resting_is_skipped_in_the_circle() -> None:
+    keys = Keys(count=3, retry_after="30")
+    now = [0.0]
+    chat = _chat_with(keys, clock=lambda: now[0], count=3)
+
+    keys.limited = {0, 1}
+    assert _ask(chat) == "Answer 2 [1]"
+    keys.used.clear()
+    keys.limited = {2}
+    now[0] = 10.0  # the first and second keys are still resting
+    with pytest.raises(groq.RateLimitError):
+        _ask(chat)
+    assert keys.used == [2]
+
+
+def test_a_key_with_no_stated_wait_rests_for_a_minute() -> None:
+    keys = Keys(count=2, retry_after=None)
+    now = [0.0]
+    retrier = Retrier(RetryPolicy(attempts=1), sleep=lambda _: None, jitter=lambda _: 0.0)
+    chat = _chat_with(keys, retrier=retrier, clock=lambda: now[0], count=2)
+
+    keys.limited = {0}
+    assert _ask(chat) == "Answer 1 [1]"
+    keys.used.clear()
+    keys.limited = {1}
+    now[0] = 59.0
+    with pytest.raises(groq.RateLimitError):
+        _ask(chat)
+    assert keys.used == [1]  # the first key had rested for less than a minute, so it was not asked
+
+    keys.used.clear()
+    keys.limited = set()
+    now[0] = 61.0
+    assert _ask(chat) == "Answer 0 [1]"  # a minute has passed for the first key, the second one still rests
+    assert keys.used == [0]
+
+
+def test_when_every_key_is_limited_the_shortest_wait_is_reported() -> None:
+    keys = Keys(count=3, retry_after="40")
+    retrier = Retrier(RetryPolicy(attempts=1), sleep=lambda _: None, jitter=lambda _: 0.0)
+    chat = GroqChat(api_key="k1", model="m", backup_keys=["k2", "k3"], retrier=retrier, clock=lambda: 0.0)
+    chat._clients = keys.clients
+    keys.limited = {0, 1, 2}
+
+    with pytest.raises(groq.RateLimitError) as raised:
+        _ask(chat)
+
+    assert keys.used == [0, 1, 2]  # all three were tried before giving up
+    assert retry_after_seconds(raised.value) == 40.0
+
+
+def test_a_request_that_waits_continues_with_a_key_that_has_recovered() -> None:
+    keys = Keys(count=2, retry_after="10")
+    now = [0.0]
+    pauses: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        pauses.append(seconds)
+        now[0] += seconds
+
+    retrier = Retrier(RetryPolicy(), sleep=sleep, jitter=lambda _: 0.0)
+    chat = GroqChat(api_key="k1", model="m", backup_keys=["k2"], retrier=retrier, clock=lambda: now[0])
+    chat._clients = keys.clients
+    original = keys.clients[0].chat.completions.create
+    calls = [0]
+
+    def first_key(**kwargs: Any) -> Any:
+        calls[0] += 1
+        if calls[0] == 1:
+            keys.limited = {0, 1}  # both keys are limited on the first try, then they recover
+        elif calls[0] == 2:
+            keys.limited = set()
+        return original(**kwargs)
+
+    keys.clients[0].chat.completions.create = first_key
+
+    assert _ask(chat) == "Answer 0 [1]"
+    assert pauses == [10.0]
+
+
+def test_a_repeated_key_is_used_only_once() -> None:
+    chat = GroqChat(api_key="k1", model="m", backup_keys=["k1", "k2", "k2"])
+    assert len(chat._clients) == 2
+
+
+# --- answers in the wrong language ------------------------------------------------------------------------------
+
+
+def _chat_answering(*answers: str) -> tuple[GroqChat, list[int]]:
+    calls: list[int] = []
+
+    def create(**kwargs: Any) -> Any:
+        calls.append(1)
+        text = answers[min(len(calls), len(answers)) - 1]
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
+
+    chat = GroqChat(api_key="k", model="m")
+    chat._clients = [_fake_groq(create)]
+    return chat, calls
+
+
+def test_an_answer_in_chinese_to_an_english_question_is_asked_again() -> None:
+    chat, calls = _chat_answering("控制 JSON 输出 [1]", "It controls the JSON output [1]")
+
+    assert chat.answer("What does it do?", "Page", [_chunk(0)]) == "It controls the JSON output [1]"
+    assert len(calls) == 2
+
+
+def test_the_wrong_language_is_asked_again_only_a_few_times() -> None:
+    chat, calls = _chat_answering("控制 JSON 输出 [1]")
+
+    assert chat.answer("What does it do?", "Page", [_chunk(0)]) == "控制 JSON 输出 [1]"
+    assert len(calls) == 3  # the first try and two more
+
+
+def test_an_answer_in_chinese_to_a_chinese_question_is_kept() -> None:
+    chat, calls = _chat_answering("它控制 JSON 输出 [1]")
+
+    assert chat.answer("它有什么作用？", "Page", [_chunk(0)]) == "它控制 JSON 输出 [1]"
+    assert len(calls) == 1
+
+
+def test_an_english_answer_to_an_arabic_question_is_not_asked_again() -> None:
+    chat, calls = _chat_answering("It controls the output [1]")
+
+    chat.answer("ماذا يفعل؟", "Page", [_chunk(0)])
+    assert len(calls) == 1

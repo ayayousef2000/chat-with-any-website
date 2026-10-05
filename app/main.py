@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-RATE_LIMIT_MESSAGE = (
-    "The AI services are receiving too many requests right now (free-tier limits). Wait {wait} and try again."
-)
+RATE_LIMIT_MESSAGE = "We're busy right now. Please try again in {wait}."
 UNAVAILABLE_MESSAGE = "An external service did not respond. Try again in a moment."
 
 # Scripts and styles are served from this origin only, so injected markup could not run or load anything.

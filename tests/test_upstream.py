@@ -192,12 +192,12 @@ def test_a_negative_wait_becomes_zero() -> None:
 @pytest.mark.parametrize(
     ("seconds", "text"),
     [
-        (None, "about a minute"),
+        (None, "a few seconds"),
         (0.2, "about 1 second"),
         (1, "about 1 second"),
         (23.4, "about 23 seconds"),
         (89, "about 89 seconds"),
-        (200, "about a minute"),
+        (200, "a few minutes"),
     ],
 )
 def test_waits_are_described_in_words(seconds: float | None, text: str) -> None:
@@ -207,4 +207,4 @@ def test_waits_are_described_in_words(seconds: float | None, text: str) -> None:
 def test_the_page_is_told_the_wait_and_the_header_value() -> None:
     details: dict[str, Any] = public_error_details(rate_limit(**{"retry-after": "23"}))
     assert details == {"wait_text": "about 23 seconds", "retry_after": "23"}
-    assert public_error_details(rate_limit()) == {"wait_text": "about a minute", "retry_after": "60"}
+    assert public_error_details(rate_limit()) == {"wait_text": "a few seconds", "retry_after": "10"}
