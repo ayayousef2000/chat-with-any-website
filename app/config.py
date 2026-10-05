@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # LLM (Groq)
     groq_api_key: str
     groq_model: str = "openai/gpt-oss-120b"
+    groq_backup_api_keys: str = ""  # more keys, separated by commas, used in order when the one before is limited
 
     # Reranking (Cohere)
     rerank_enabled: bool = True
@@ -56,6 +57,11 @@ class Settings(BaseSettings):
     max_stored_chunks: int = Field(default=60_000, gt=0)
     cleanup_interval_seconds: float = Field(default=60, gt=0)
     state_db_path: str = "data/state.db"
+
+    @property
+    def groq_backup_keys(self) -> list[str]:
+        """The backup Groq keys in the order they are used, without blanks."""
+        return [key.strip() for key in self.groq_backup_api_keys.split(",") if key.strip()]
 
     @model_validator(mode="after")
     def _check_overlap(self) -> Self:

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import cohere.errors as cohere_errors
 import pytest
 
 import app.pipeline as pipeline_module
@@ -9,6 +10,7 @@ from app.errors import ExtractionError, NotIngestedError
 from app.extraction import ExtractedPage
 from app.pipeline import Pipeline
 from app.reranking import CohereReranker
+from app.vector_store import RetrievedChunk
 from tests.fakes import TEXT, URL, FakeChat, FakeEmbedder, FakeReranker, FakeStore, make_settings
 
 
@@ -104,6 +106,45 @@ def test_ask_with_reranker_uses_reranked_order(settings: Settings) -> None:
     assert chat.calls[0][2] == answer.retrieved
 
 
+class LimitedReranker:
+    """A reranker whose service answers "too many requests" or is down, as set by ``error``."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def rerank(self, query: str, chunks: list[RetrievedChunk], top_n: int) -> list[RetrievedChunk]:
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        cohere_errors.TooManyRequestsError(body={"message": "limit"}),
+        cohere_errors.ServiceUnavailableError(body={"message": "down"}),
+    ],
+)
+def test_ask_still_answers_when_reranking_is_limited_or_down(settings: Settings, error: Exception) -> None:
+    embedder, store, chat = FakeEmbedder(), FakeStore(), FakeChat()
+    pipeline = Pipeline(settings, embedder=embedder, store=store, reranker=LimitedReranker(error), llm=chat)
+    pipeline.ingest(URL)
+
+    answer = pipeline.ask(URL, "What is retrieval?")
+
+    assert answer.answer == "the answer [1][3]"
+    assert [c.chunk_index for c in answer.retrieved] == [0, 1, 2]  # the search order, cut to top_k
+
+
+def test_a_wrong_key_for_reranking_is_not_hidden(settings: Settings) -> None:
+    error = cohere_errors.UnauthorizedError(body={"message": "invalid key"})
+    pipeline = Pipeline(
+        settings, embedder=FakeEmbedder(), store=FakeStore(), reranker=LimitedReranker(error), llm=FakeChat()
+    )
+    pipeline.ingest(URL)
+
+    with pytest.raises(cohere_errors.UnauthorizedError):
+        pipeline.ask(URL, "What is retrieval?")
+
+
 def test_ask_returns_only_cited_sources_with_their_numbers(settings: Settings) -> None:
     pipeline, *_ = _pipeline(settings.model_copy(update={"rerank_enabled": False}))
     pipeline.ingest(URL)
@@ -146,9 +187,11 @@ def test_default_components_are_created_from_settings(settings: Settings) -> Non
     pipeline = Pipeline(settings, store=store, llm=FakeChat())
     assert isinstance(pipeline._embedder, CohereEmbedder)
     assert isinstance(pipeline._reranker, CohereReranker)
-    # The three services share one retry policy that comes from the settings.
+    # The embeddings and the answers use the retry policy from the settings.
     assert pipeline._embedder._retrier.policy.attempts == settings.retry_attempts
-    assert pipeline._reranker._retrier.policy.max_delay == settings.retry_max_wait_seconds
-    assert pipeline._embedder._retrier is pipeline._reranker._retrier
+    assert pipeline._embedder._retrier.policy.max_delay == settings.retry_max_wait_seconds
+    # Reranking only improves the order of the excerpts, so it waits briefly and then gives way.
+    assert pipeline._reranker._retrier.policy.max_delay <= 2.0
+    assert pipeline._reranker._retrier.policy.attempts == 2
     pipeline.close()
     assert store.closed

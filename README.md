@@ -96,6 +96,7 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `COHERE_RERANK_MODEL` | `rerank-v4.0-fast` | Cohere rerank model |
 | `WEAVIATE_COLLECTION` | `WebsiteChunk` | Weaviate collection name |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Chat model on Groq |
+| `GROQ_BACKUP_API_KEYS` | empty | More Groq keys, separated by commas. `GROQ_API_KEY` is used until its limit is reached, then each backup key in turn, and after the last one the first again; a key whose limit was reached is skipped until it has recovered |
 | `CHUNK_SIZE` | `2000` | Maximum characters per chunk |
 | `CHUNK_OVERLAP` | `300` | Characters shared between consecutive chunks |
 | `RETRIEVE_K` | `25` | Candidates fetched from Weaviate before reranking |
@@ -165,7 +166,7 @@ A source is the whole section of the page that was used, but a question is usual
 
 ## Rate limits
 
-The free plans of Cohere and Groq limit how fast requests may come (Groq's free plan allows about 8,000 tokens a minute, which is a few questions). When a service answers "too many requests" or is briefly unavailable, the app waits for the time the service names, or a growing pause when it names none, and tries again, up to `RETRY_ATTEMPTS` tries and `RETRY_BUDGET_SECONDS` of waiting. While it waits, the page says it is still working. If a service asks for a longer wait than `RETRY_MAX_WAIT_SECONDS`, the app does not hold the visitor up: it answers with a message that says how long to wait ("Wait about 23 seconds and try again") and sends a `Retry-After` header. Errors that trying again cannot fix, such as a wrong key, are shown at once.
+The free plans of Cohere and Groq limit how fast requests may come (Groq's free plan allows about 8,000 tokens a minute, which is a few questions). When a service answers "too many requests" or is briefly unavailable, the app waits for the time the service names, or a growing pause when it names none, and tries again, up to `RETRY_ATTEMPTS` tries and `RETRY_BUDGET_SECONDS` of waiting. While it waits, the page says it is still working. If a service asks for a longer wait than `RETRY_MAX_WAIT_SECONDS`, the app does not hold the visitor up: it answers with a message that says how long to wait ("We're busy right now. Please try again in about 23 seconds.") and sends a `Retry-After` header. Errors that trying again cannot fix, such as a wrong key, are shown at once.
 
 ## How long pages are kept
 

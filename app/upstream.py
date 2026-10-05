@@ -157,10 +157,13 @@ def describe_wait(seconds: float | None) -> str:
         seconds: The wait the service asked for, or ``None`` if it named none.
 
     Returns:
-        For example ``"about 23 seconds"`` or ``"about a minute"``.
+        For example ``"about 23 seconds"``. A wait the service did not name is ``"a few seconds"`` (these limits
+        are counted per minute, so a place usually frees up quickly), and a long one is ``"a few minutes"``.
     """
-    if seconds is None or seconds > 90:
-        return "about a minute"
+    if seconds is None:
+        return "a few seconds"
+    if seconds > 90:
+        return "a few minutes"
     rounded = max(1, round(seconds))
     return f"about {rounded} second{'s' if rounded != 1 else ''}"
 
@@ -175,4 +178,4 @@ def public_error_details(error: BaseException) -> dict[str, Any]:
         The wait to show to the person and the value for the ``Retry-After`` header.
     """
     asked = retry_after_seconds(error)
-    return {"wait_text": describe_wait(asked), "retry_after": str(max(1, round(asked))) if asked is not None else "60"}
+    return {"wait_text": describe_wait(asked), "retry_after": str(max(1, round(asked))) if asked is not None else "10"}
