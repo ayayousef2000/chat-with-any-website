@@ -198,9 +198,10 @@ button.link:hover:not(:disabled) { transform: none; box-shadow: none; }
 
 .load { display: flex; flex-direction: column; gap: 6px; }
 
-.status { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.status { display: flex; flex-direction: column; gap: 2px; margin: 0; color: var(--muted); font-size: 0.9rem; }
 .status:empty { display: none; }
-.status.error { color: var(--error); }
+.status.error .status-main { color: var(--error); font-weight: 600; }
+.status-note { color: var(--muted); font-size: 0.85rem; }
 
 .page-bar {
   display: flex;
@@ -220,8 +221,10 @@ button.link:hover:not(:disabled) { transform: none; box-shadow: none; }
 
 .page-bar[hidden] { display: none; }
 .page-actions { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-#page-meta { white-space: nowrap; }
+#page-meta { display: block; margin-top: 2px; font-size: 0.78rem; }
+#page-meta:empty { display: none; }
 .page-bar-text { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+.page-label { display: block; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
 .page-bar a { color: var(--cite); font: 700 0.95rem var(--serif); text-underline-offset: 3px; }
 
 #messages {

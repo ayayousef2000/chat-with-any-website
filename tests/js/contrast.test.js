@@ -101,6 +101,12 @@ for (const [themeName, v] of Object.entries(themes())) {
   }
 }
 
+test("the page bar names the active page with a label in the muted color, which the checks above cover", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../../app/static/index.html"), "utf8");
+  assert.match(html, /<span class="page-label">Chatting about<\/span>/);
+  assert.match(css, /\.page-label \{[^}]*color: var\(--muted\);/);
+});
+
 test("the stylesheet defines both themes with the same set of colors", () => {
   const { light, dark } = themes();
   assert.ok(Object.keys(light).length >= 20);

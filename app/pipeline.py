@@ -227,7 +227,7 @@ class Pipeline:
         text = clean_text(page.text)
         chunks = chunk_text(text, self._settings.chunk_size, self._settings.chunk_overlap)
         if not chunks:
-            raise ExtractionError("The page did not contain enough text to index.")
+            raise ExtractionError("This page doesn't have enough text to answer questions about. Try a different page.")
 
         vectors = self._embedder.embed_documents(
             [contextualize(page.title, chunk.heading, chunk.text) for chunk in chunks]
@@ -254,13 +254,13 @@ class Pipeline:
         """
         url = normalize_url(url)
         if self._registry.get(url) is None or not self._store.has_source(url):
-            raise NotIngestedError("This URL has not been loaded yet. Load it first, then ask your question.")
+            raise NotIngestedError("Load a page first, then ask your question.")
         self._registry.touch(url, self._clock())
 
         query_vector = self._embedder.embed_query(question)
         chunks = self._store.search(url, question, query_vector, self._settings.retrieve_k, self._settings.hybrid_alpha)
         if not chunks:
-            return Answer(answer="I could not find anything relevant on this page.", sources=[], retrieved=[])
+            return Answer(answer="I couldn't find anything relevant on this page.", sources=[], retrieved=[])
 
         if self._reranker:
             chunks = self._reranker.rerank(question, chunks, self._settings.top_k)

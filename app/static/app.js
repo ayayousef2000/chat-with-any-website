@@ -33,10 +33,20 @@ function formatAge(seconds) {
   return `${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
+// "Loaded just now", "Loaded 4 minutes ago": how long ago a page was loaded, given the time it was loaded (ms).
+function loadedText(loadedAt, now = Date.now()) {
+  return `Loaded ${formatAge(Math.max(0, (now - loadedAt) / 1000))}`;
+}
+
 // Tells the user when a page came from a saved copy; a freshly fetched page needs no message.
 function describeLoad(result) {
   if (!result.reused) return "";
-  return `Loaded "${result.title}" from a saved copy (loaded ${formatAge(result.age_seconds)}). Use Refresh for the latest version.`;
+  return `This page was loaded ${formatAge(result.age_seconds)}. Use Refresh to get the latest version.`;
+}
+
+// The time (ms) a page was loaded, from the age the server reports for its stored copy.
+function loadedAtFrom(result, now = Date.now()) {
+  return now - (result.age_seconds || 0) * 1000;
 }
 
 // Asks a question. If the saved copy of the page is gone (it expired or was deleted), loads the page again and
@@ -124,9 +134,14 @@ function plainText(markdown) {
 
 function friendlyError(error) {
   if (error instanceof TypeError) {
-    return "Could not reach the server. Check that the app is running and your connection works, then try again.";
+    return "We couldn't connect. Check your internet connection and try again.";
   }
   return error && error.message ? error.message : "Something went wrong. Please try again.";
+}
+
+// The note shown under an error when a failed load left the previous page in place.
+function stillLoadedNote(title) {
+  return `Your current page, "${title}", is still loaded, so you can keep asking questions about it.`;
 }
 
 const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(\*[^\s*][^*\n]*?\*)|(\[\d+\])|(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g;
@@ -594,13 +609,25 @@ function init() {
   const pageLink = document.getElementById("page-link");
   const pageMeta = document.getElementById("page-meta");
 
-  let page = null; // the page the questions are about: { url, title, chunks }
+  let page = null; // the page the questions are about: { url, title, loadedAt }
   let busy = false;
 
   const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  function setStatus(text, isError = false) {
-    statusEl.textContent = text;
+  // Shows one line of status. An optional note goes on a second, quieter line, so that information
+  // (such as which page is still loaded) is not mixed into the error itself.
+  function setStatus(text, isError = false, note = "") {
+    statusEl.replaceChildren();
+    if (text) {
+      const main = createElement("span", "status-main");
+      main.textContent = text;
+      statusEl.append(main);
+    }
+    if (text && note) {
+      const extra = createElement("span", "status-note");
+      extra.textContent = note;
+      statusEl.append(extra);
+    }
     statusEl.classList.toggle("error", isError);
   }
 
@@ -627,12 +654,17 @@ function init() {
     }
   }
 
+  // Shows how long ago the page was loaded; pages remembered by an older version of the script have no time.
+  function renderPageMeta() {
+    pageMeta.textContent = page && page.loadedAt ? loadedText(page.loadedAt) : "";
+  }
+
   function showPage(newPage) {
     page = newPage;
     const href = safeUrl(page.url);
     if (href) pageLink.href = href;
     pageLink.textContent = page.title;
-    pageMeta.textContent = `· ${page.chunks} chunks`;
+    renderPageMeta();
     pageBar.hidden = false;
     savePage();
     updateControls();
@@ -725,17 +757,16 @@ function init() {
   ingestForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     setBusy(true);
-    setStatus("Fetching, cleaning, chunking and embedding the page. Long pages can take up to a minute…");
+    setStatus("Reading the page… Long pages can take up to a minute.");
     try {
       const result = await postJson("/api/ingest", { url: urlInput.value });
       urlInput.value = result.url;
-      showPage({ url: result.url, title: result.title, chunks: result.chunk_count });
+      showPage({ url: result.url, title: result.title, loadedAt: loadedAtFrom(result) });
       showEmptyState();
       setStatus(describeLoad(result));
     } catch (error) {
       // The previous page, if any, stays loaded and visible in the bar above the conversation.
-      const kept = page ? ` You are still chatting with "${page.title}".` : "";
-      setStatus(friendlyError(error) + kept, true);
+      setStatus(friendlyError(error), true, page ? stillLoadedNote(page.title) : "");
     } finally {
       setBusy(false);
       if (page) questionInput.focus();
@@ -754,9 +785,12 @@ function init() {
     setStatus("Thinking…");
     const cancelSlowNotice = startSlowNotice(setStatus, SLOW_ANSWER_NOTICE);
     try {
-      const result = await askWithReload(postJson, page.url, question, () =>
-        setStatus("The saved copy of the page expired. Loading it again…"),
-      );
+      const result = await askWithReload(postJson, page.url, question, () => {
+        setStatus("The saved copy of the page expired. Loading it again…");
+        page.loadedAt = Date.now(); // the page is fetched again, so it is as new as it gets
+        renderPageMeta();
+        savePage();
+      });
       typing.remove();
       addAnswer(result.answer, result.sources, question);
     } catch (error) {
@@ -777,7 +811,7 @@ function init() {
     setStatus("Fetching the page again…");
     try {
       const result = await postJson("/api/ingest", { url: page.url, refresh: true });
-      showPage({ url: result.url, title: result.title, chunks: result.chunk_count });
+      showPage({ url: result.url, title: result.title, loadedAt: loadedAtFrom(result) });
       setStatus(`Refreshed "${result.title}".`);
     } catch (error) {
       setStatus(friendlyError(error), true);
@@ -805,7 +839,6 @@ function init() {
     setBusy(true);
     try {
       await request(`/api/page?url=${encodeURIComponent(page.url)}`, { method: "DELETE" });
-      const title = page.title;
       page = null;
       pageBar.hidden = true;
       try {
@@ -813,8 +846,9 @@ function init() {
       } catch {
         // Ignore unavailable storage.
       }
+      // The empty state that follows already says what to do next, so no extra message is shown.
       showEmptyState();
-      setStatus(`Deleted the saved copy of "${title}". Load a page to start again.`);
+      setStatus("");
     } catch (error) {
       setStatus(friendlyError(error), true);
     } finally {
@@ -840,6 +874,7 @@ function init() {
   }
   showEmptyState();
   updateControls();
+  setInterval(renderPageMeta, 30_000); // keeps "Loaded 4 minutes ago" true while the tab stays open
 }
 
 if (typeof module !== "undefined" && module.exports) {
@@ -853,11 +888,14 @@ if (typeof module !== "undefined" && module.exports) {
     withAvatar,
     confirmDialog,
     formatAge,
+    loadedText,
+    loadedAtFrom,
     describeLoad,
     askWithReload,
     safeUrl,
     plainText,
     friendlyError,
+    stillLoadedNote,
     renderInline,
     renderMarkdown,
     buildSources,
