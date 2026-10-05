@@ -99,8 +99,15 @@ test("plainText strips Markdown symbols from source excerpts", () => {
   assert.equal(page.plainText(input), "Heading\nBold and italic and code and link.\n\n- item");
 });
 
+test("the note after a failed load names the page that is still loaded and says what to do", () => {
+  assert.equal(
+    page.stillLoadedNote("Quotes to Scrape"),
+    'Your current page, "Quotes to Scrape", is still loaded, so you can keep asking questions about it.',
+  );
+});
+
 test("friendlyError explains network failures and keeps server messages", () => {
-  assert.match(page.friendlyError(new TypeError("Failed to fetch")), /Could not reach the server/);
+  assert.equal(page.friendlyError(new TypeError("Failed to fetch")), "We couldn't connect. Check your internet connection and try again.");
   assert.equal(page.friendlyError(new Error("Wait a minute.")), "Wait a minute.");
   assert.equal(page.friendlyError(null), "Something went wrong. Please try again.");
 });
@@ -202,11 +209,30 @@ test("formatAge describes how old a saved copy is", () => {
 
 test("describeLoad only speaks up when a saved copy was used", () => {
   assert.equal(page.describeLoad({ title: "T", reused: false, age_seconds: 0 }), "");
-  const message = page.describeLoad({ title: "My Page", reused: true, age_seconds: 240 });
-  assert.match(message, /My Page/);
-  assert.match(message, /saved copy/);
-  assert.match(message, /4 minutes ago/);
-  assert.match(message, /Refresh/);
+  assert.equal(
+    page.describeLoad({ title: "My Page", reused: true, age_seconds: 240 }),
+    "This page was loaded 4 minutes ago. Use Refresh to get the latest version.",
+  );
+});
+
+test("the page bar says how long ago the page was loaded, and no technical details", () => {
+  const now = 1_000_000_000;
+  assert.equal(page.loadedText(now, now), "Loaded just now");
+  assert.equal(page.loadedText(now - 4 * 60_000, now), "Loaded 4 minutes ago");
+  assert.equal(page.loadedText(now - 2 * 3_600_000, now), "Loaded 2 hours ago");
+  assert.equal(page.loadedText(now + 5_000, now), "Loaded just now"); // a clock that is slightly ahead never shows a negative age
+});
+
+test("the time a page was loaded comes from the age the server reports for its stored copy", () => {
+  const now = 1_000_000_000;
+  assert.equal(page.loadedAtFrom({ age_seconds: 0 }, now), now);
+  assert.equal(page.loadedAtFrom({ age_seconds: 240 }, now), now - 240_000);
+  assert.equal(page.loadedAtFrom({}, now), now);
+});
+
+test("the page script never shows chunk counts to the visitor", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../app/static/app.js"), "utf8");
+  assert.doesNotMatch(source, /chunk/i);
 });
 
 function fakePost(script) {
