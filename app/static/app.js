@@ -6,7 +6,6 @@
 
 // The same address as the tab icon, including its version, so both come from one cached file.
 const AVATAR_URL = "/static/favicon.svg?v=2";
-const EXAMPLE_URL = "https://en.wikipedia.org/wiki/Retrieval-augmented_generation";
 const STORAGE_KEY = "chat-with-any-website:page";
 
 function createElement(tag, className) {
@@ -677,14 +676,7 @@ function init() {
       const first = createElement("p");
       first.textContent = "No page loaded yet.";
       const hint = createElement("p");
-      const example = createElement("button", "link");
-      example.type = "button";
-      example.textContent = "try an example page";
-      example.addEventListener("click", () => {
-        urlInput.value = EXAMPLE_URL;
-        urlInput.focus();
-      });
-      hint.append("Paste an address above, or ", example, ".");
+      hint.textContent = "Paste an address above.";
       empty.append(first, hint);
     } else {
       const only = createElement("p");
