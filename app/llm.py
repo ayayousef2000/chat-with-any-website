@@ -5,10 +5,11 @@ import re
 import threading
 import time
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import groq
 from groq import Groq
-from groq.types.chat import ChatCompletion
+from groq.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from app.citations import normalize_citations
 from app.upstream import Retrier, retry_after_seconds
@@ -33,7 +34,8 @@ def _answered_in_cjk_by_mistake(question: str, answer: str) -> bool:
 
 SYSTEM_PROMPT = """You answer questions about a single web page.
 Use only the numbered excerpts from that page provided by the user.
-Do not make up facts.
+Do not make up facts. State only what the excerpts say: do not add reasons, explanations or background of your
+own, even when they seem obvious or are common knowledge.
 
 Citations:
 - After each statement taken from the page, cite the excerpts it comes from using plain square brackets with
@@ -89,15 +91,33 @@ class GroqChat:
         )
         user_message = f"Page title: {title}\n\nExcerpts:\n{excerpts}\n\nQuestion: {question}"
 
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ]
+
         for attempt in range(LANGUAGE_RETRIES + 1):
-            completion = self._retrier.call(lambda: self._complete(user_message), name="Groq answer")
+            completion = self._retrier.call(lambda: self._complete(messages, temperature=0.2), name="Groq answer")
             answer = (completion.choices[0].message.content or "").strip()
             if attempt == LANGUAGE_RETRIES or not _answered_in_cjk_by_mistake(question, answer):
                 break
             logger.warning("Groq answered in the wrong language; asking again (attempt %d)", attempt + 2)
         return normalize_citations(answer)
 
-    def _complete(self, user_message: str) -> ChatCompletion:
+    def complete(self, messages: Sequence[ChatCompletionMessageParam], **options: Any) -> str:
+        """Send messages to the model and return its reply, with the same key rotation and retries as answers.
+
+        Args:
+            messages: The conversation to send.
+            **options: Further request options, such as ``temperature`` or ``response_format``.
+
+        Returns:
+            The text of the model's reply.
+        """
+        completion = self._retrier.call(lambda: self._complete(messages, **options), name="Groq request")
+        return (completion.choices[0].message.content or "").strip()
+
+    def _complete(self, messages: Sequence[ChatCompletionMessageParam], **options: Any) -> ChatCompletion:
         """Make one request, moving on to the next key each time a key's limit is reached.
 
         Raises:
@@ -115,13 +135,8 @@ class GroqChat:
         soonest: tuple[float, groq.RateLimitError] | None = None
         for position, index in enumerate(candidates):
             try:
-                completion = self._clients[index].chat.completions.create(
-                    model=self._model,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_message},
-                    ],
-                    temperature=0.2,
+                completion: ChatCompletion = self._clients[index].chat.completions.create(
+                    model=self._model, messages=list(messages), **options
                 )
                 with self._lock:
                     self._current = index

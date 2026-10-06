@@ -22,14 +22,14 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.chunk_size == 2000
     assert settings.chunk_overlap == 300
     assert settings.retrieve_k == 25
-    assert settings.top_k == 5
+    assert settings.top_k == 3
     assert settings.rerank_enabled is True
     assert settings.browser_fallback is False
 
 
 def test_overrides_come_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = _settings(monkeypatch, TOP_K="3", HYBRID_ALPHA="0.4", RERANK_ENABLED="false")
-    assert (settings.top_k, settings.hybrid_alpha, settings.rerank_enabled) == (3, 0.4, False)
+    settings = _settings(monkeypatch, TOP_K="4", HYBRID_ALPHA="0.4", RERANK_ENABLED="false")
+    assert (settings.top_k, settings.hybrid_alpha, settings.rerank_enabled) == (4, 0.4, False)
 
 
 def test_missing_required_value_fails(monkeypatch: pytest.MonkeyPatch) -> None:
