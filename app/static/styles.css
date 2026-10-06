@@ -185,17 +185,6 @@ button.secondary {
 
 button.secondary:hover:not(:disabled) { border-color: var(--cite); box-shadow: none; transform: none; }
 
-button.link {
-  padding: 0;
-  font-weight: 400;
-  color: var(--cite);
-  background: none;
-  box-shadow: none;
-  text-decoration: underline;
-}
-
-button.link:hover:not(:disabled) { transform: none; box-shadow: none; }
-
 .load { display: flex; flex-direction: column; gap: 6px; }
 
 .status { display: flex; flex-direction: column; gap: 2px; margin: 0; color: var(--muted); font-size: 0.9rem; }
