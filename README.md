@@ -100,7 +100,7 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `CHUNK_SIZE` | `2000` | Maximum characters per chunk |
 | `CHUNK_OVERLAP` | `300` | Characters shared between consecutive chunks |
 | `RETRIEVE_K` | `25` | Candidates fetched from Weaviate before reranking |
-| `TOP_K` | `5` | Chunks passed to the LLM |
+| `TOP_K` | `3` | Chunks passed to the LLM (3 and 5 scored the same on the evaluation set; 3 sends fewer tokens) |
 | `HYBRID_ALPHA` | `0.65` | Blend of vector and keyword search (1 = vector only, 0 = keyword only) |
 | `BROWSER_FALLBACK` | `false` | Retry thin pages in a headless browser |
 | `MIN_TEXT_CHARS` | `500` | Text length below which the browser fallback is tried |

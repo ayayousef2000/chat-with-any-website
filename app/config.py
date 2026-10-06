@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=2000, gt=0)
     chunk_overlap: int = Field(default=300, ge=0)
     retrieve_k: int = Field(default=25, gt=0)
-    top_k: int = Field(default=5, gt=0)
+    top_k: int = Field(default=3, gt=0)
     hybrid_alpha: float = Field(default=0.65, ge=0, le=1)
 
     # Trying again when a service says "too many requests" or is briefly unavailable

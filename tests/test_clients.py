@@ -131,6 +131,10 @@ def test_groq_answer_citations_are_normalized() -> None:
     assert chat.answer("When?", "Page", [_chunk(0), _chunk(1)]) == "It was 2020 [1][2]."
 
 
+def test_groq_system_prompt_forbids_adding_reasons_of_its_own() -> None:
+    assert "do not add reasons, explanations or background of your" in SYSTEM_PROMPT
+
+
 def test_groq_system_prompt_forbids_other_citation_styles() -> None:
     assert "square brackets" in SYSTEM_PROMPT
     assert "never mention line numbers" in SYSTEM_PROMPT
@@ -479,3 +483,33 @@ def test_an_english_answer_to_an_arabic_question_is_not_asked_again() -> None:
 
     chat.answer("ماذا يفعل؟", "Page", [_chunk(0)])
     assert len(calls) == 1
+
+
+# --- the general request used by the evaluation judge -----------------------------------------------------------
+
+
+def test_complete_sends_the_messages_and_options_and_returns_the_text() -> None:
+    captured: dict[str, Any] = {}
+
+    def create(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='  {"ok": true}  '))])
+
+    chat = GroqChat(api_key="k", model="judge-model")
+    chat._clients = [_fake_groq(create)]
+    messages: list[Any] = [{"role": "user", "content": "hi"}]
+
+    assert chat.complete(messages, temperature=0, response_format={"type": "json_object"}) == '{"ok": true}'
+    assert captured["model"] == "judge-model"
+    assert captured["messages"] == messages
+    assert captured["temperature"] == 0
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_complete_also_moves_on_to_the_next_key_when_a_limit_is_reached() -> None:
+    keys = Keys()
+    chat = _chat_with(keys)
+    keys.limited = {0}
+
+    assert chat.complete([{"role": "user", "content": "hi"}]) == "Answer 1 [1]"
+    assert keys.used == [0, 1]
