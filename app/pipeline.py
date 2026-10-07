@@ -156,6 +156,7 @@ class Pipeline:
             url=settings.weaviate_url,
             api_key=settings.weaviate_api_key,
             collection_name=settings.weaviate_collection,
+            init_timeout=settings.weaviate_init_timeout_seconds,
         )
         self._reranker: Reranker | None = reranker
         if self._reranker is None and settings.rerank_enabled:

@@ -95,6 +95,7 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `RERANK_ENABLED` | `true` | Rerank retrieved chunks with Cohere |
 | `COHERE_RERANK_MODEL` | `rerank-v4.0-fast` | Cohere rerank model |
 | `WEAVIATE_COLLECTION` | `WebsiteChunk` | Weaviate collection name |
+| `WEAVIATE_INIT_TIMEOUT_SECONDS` | `30` | Seconds to wait for Weaviate at startup (the client's own default of 2 can fail on a slow connection) |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Chat model on Groq |
 | `GROQ_BACKUP_API_KEYS` | empty | More Groq keys, separated by commas. `GROQ_API_KEY` is used until its limit is reached, then each backup key in turn, and after the last one the first again; a key whose limit was reached is skipped until it has recovered |
 | `CHUNK_SIZE` | `2000` | Maximum characters per chunk |
