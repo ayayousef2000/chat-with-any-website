@@ -90,3 +90,16 @@ def test_backup_groq_keys_are_read_in_order_without_blanks(monkeypatch: pytest.M
 def test_there_are_no_backup_groq_keys_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GROQ_BACKUP_API_KEYS", raising=False)
     assert _settings(monkeypatch).groq_backup_keys == []
+
+
+def test_rate_limit_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _settings(monkeypatch)
+    assert settings.rate_limit_enabled is True
+    assert (settings.rate_limit_asks_per_minute, settings.rate_limit_asks_per_day) == (6, 60)
+    assert settings.rate_limit_loads_per_hour == 20
+
+
+@pytest.mark.parametrize("name", ["RATE_LIMIT_ASKS_PER_MINUTE", "RATE_LIMIT_ASKS_PER_DAY", "RATE_LIMIT_LOADS_PER_HOUR"])
+def test_rate_limit_values_must_be_positive(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    with pytest.raises(ValidationError):
+        _settings(monkeypatch, **{name: "0"})

@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     retry_max_wait_seconds: float = Field(default=20, gt=0)
     retry_budget_seconds: float = Field(default=45, gt=0)
 
+    # Limits per visitor, so that nobody can use up the free plans of the services
+    rate_limit_enabled: bool = True
+    rate_limit_asks_per_minute: int = Field(default=6, gt=0)
+    rate_limit_asks_per_day: int = Field(default=60, gt=0)
+    rate_limit_loads_per_hour: int = Field(default=20, gt=0)
+
     # Lifetime of stored pages
     page_idle_minutes: float = Field(default=15, gt=0)
     page_max_age_hours: float = Field(default=12, gt=0)

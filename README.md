@@ -107,6 +107,10 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `RETRY_ATTEMPTS` | `4` | Most tries per call to Cohere or Groq, including the first |
 | `RETRY_MAX_WAIT_SECONDS` | `20` | Longest single wait; a service that asks for more is not waited for |
 | `RETRY_BUDGET_SECONDS` | `45` | Longest total waiting per call |
+| `RATE_LIMIT_ENABLED` | `true` | Limit how often one visitor may ask questions and load pages |
+| `RATE_LIMIT_ASKS_PER_MINUTE` | `6` | Questions one visitor may ask in a minute |
+| `RATE_LIMIT_ASKS_PER_DAY` | `60` | Questions one visitor may ask in a day (a sliding 24 hours) |
+| `RATE_LIMIT_LOADS_PER_HOUR` | `20` | Page loads and deletes one visitor may make in an hour |
 | `PAGE_IDLE_MINUTES` | `15` | Minutes without a question after which a stored page is deleted |
 | `PAGE_MAX_AGE_HOURS` | `12` | Age after which a stored page is deleted even if it is in use |
 | `MAX_STORED_CHUNKS` | `60000` | Size limit; least recently used pages are removed first |
@@ -167,6 +171,10 @@ A source is the whole section of the page that was used, but a question is usual
 ## Rate limits
 
 The free plans of Cohere and Groq limit how fast requests may come (Groq's free plan allows about 8,000 tokens a minute, which is a few questions). When a service answers "too many requests" or is briefly unavailable, the app waits for the time the service names, or a growing pause when it names none, and tries again, up to `RETRY_ATTEMPTS` tries and `RETRY_BUDGET_SECONDS` of waiting. While it waits, the page says it is still working. If a service asks for a longer wait than `RETRY_MAX_WAIT_SECONDS`, the app does not hold the visitor up: it answers with a message that says how long to wait ("We're busy right now. Please try again in about 23 seconds.") and sends a `Retry-After` header. Errors that trying again cannot fix, such as a wrong key, are shown at once.
+
+### Limits per visitor
+
+To keep one visitor from using up the free plans, the API limits each visitor (told apart by network address) to `RATE_LIMIT_ASKS_PER_MINUTE` questions a minute, `RATE_LIMIT_ASKS_PER_DAY` questions a day, and `RATE_LIMIT_LOADS_PER_HOUR` page loads and deletes an hour. A visitor over a limit gets a message that says how long to wait ("You're asking questions too quickly. Please try again in about 20 seconds.") and a `Retry-After` header, and the request is not passed on to any service. The counts are kept in memory, so they restart with the server and are not shared between several server processes. Behind a proxy, start uvicorn with `--proxy-headers` and `--forwarded-allow-ips` set to the proxy's address, so that each visitor's own address is used; otherwise every visitor looks like the proxy. The `X-Forwarded-For` header itself is never read by the app, because anyone can send one.
 
 ## How long pages are kept
 
