@@ -5,15 +5,16 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Query, Request, Response
+from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
-from app.errors import AppError
+from app.errors import AppError, TooManyRequestsError
 from app.janitor import Janitor
 from app.pipeline import Pipeline
+from app.ratelimit import ClientLimits
 from app.upstream import RATE_LIMIT_ERRORS, UNAVAILABLE_ERRORS, public_error_details
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     janitor = Janitor(pipeline.cleanup, settings.cleanup_interval_seconds)
     janitor.start()
     app.state.pipeline = pipeline
+    app.state.limits = ClientLimits.from_settings(settings)
     try:
         yield
     finally:
@@ -108,6 +110,20 @@ async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 
+async def handle_too_many_requests(request: Request, exc: Exception) -> JSONResponse:
+    """Tell a caller who is over the limits of the API how long to wait."""
+    wait = exc.retry_after if isinstance(exc, TooManyRequestsError) else 60.0
+    logger.info("A client was over the limit on %s", request.url.path)
+    return JSONResponse(
+        status_code=429,
+        content={"detail": str(exc)},
+        headers={"Retry-After": str(max(1, round(wait)))},
+    )
+
+
+app.add_exception_handler(TooManyRequestsError, handle_too_many_requests)
+
+
 async def handle_rate_limit(request: Request, exc: Exception) -> JSONResponse:
     """Tell the user an upstream service is rate limiting, and how long to wait."""
     details = public_error_details(exc)
@@ -155,8 +171,22 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+def limit_asks(request: Request) -> None:
+    """Count a question against the limits of the caller, or refuse it."""
+    limits: ClientLimits | None = getattr(request.app.state, "limits", None)  # set at startup
+    if limits is not None:
+        limits.enforce(request, "ask")
+
+
+def limit_loads(request: Request) -> None:
+    """Count a page load or delete against the limits of the caller, or refuse it."""
+    limits: ClientLimits | None = getattr(request.app.state, "limits", None)  # set at startup
+    if limits is not None:
+        limits.enforce(request, "load")
+
+
 # Plain `def` endpoints run in a worker thread, so the blocking SDK calls don't stall the event loop.
-@app.post("/api/ingest")
+@app.post("/api/ingest", dependencies=[Depends(limit_loads)])
 def ingest(body: IngestRequest, request: Request) -> IngestResponse:
     """Fetch, clean, chunk, embed and store a page."""
     result = request.app.state.pipeline.ingest(body.url, refresh=body.refresh)
@@ -169,13 +199,13 @@ def ingest(body: IngestRequest, request: Request) -> IngestResponse:
     )
 
 
-@app.delete("/api/page")
+@app.delete("/api/page", dependencies=[Depends(limit_loads)])
 def forget(request: Request, url: str = Query(min_length=1, max_length=2048)) -> ForgetResponse:
     """Delete the stored copy of a page."""
     return ForgetResponse(deleted=request.app.state.pipeline.forget(url))
 
 
-@app.post("/api/ask")
+@app.post("/api/ask", dependencies=[Depends(limit_asks)])
 def ask(body: AskRequest, request: Request) -> AskResponse:
     """Answer a question about a previously loaded page."""
     result = request.app.state.pipeline.ask(body.url, body.question)

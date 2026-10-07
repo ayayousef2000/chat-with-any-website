@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Any
 
 import cohere.errors as cohere_errors
 import groq
@@ -10,6 +11,7 @@ from weaviate import exceptions as weaviate_exceptions
 from app.errors import FetchError, NotIngestedError
 from app.main import app
 from app.pipeline import Answer, CitedSource, IngestResult
+from app.ratelimit import ClientLimits
 from app.vector_store import RetrievedChunk
 
 _REQUEST = httpx.Request("POST", "https://api.example.invalid/v1")
@@ -55,9 +57,11 @@ class FakePipeline:
         return Answer(answer="42 [1]", sources=[CitedSource(number=1, chunk=chunk)], retrieved=[chunk])
 
 
-def _client() -> TestClient:
+def _client(limits: ClientLimits | None = None) -> TestClient:
     # Not used as a context manager, so the real startup (which connects to external services) is skipped.
     app.state.pipeline = FakePipeline()
+    # Generous limits, so that tests that are not about the limits never reach them.
+    app.state.limits = limits or ClientLimits(asks_per_minute=1000, asks_per_day=1000, loads_per_hour=1000)
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -201,3 +205,68 @@ def test_without_a_named_wait_the_message_says_a_few_seconds() -> None:
     response = _client().post("/api/ask", json={"url": "https://example.com/", "question": "groq-rate-limit"})
     assert response.headers["Retry-After"] == "10"
     assert "Please try again in a few seconds" in response.json()["detail"]
+
+
+# --- limits per visitor ------------------------------------------------------------------------------------------
+
+
+def _ask(client: TestClient, **headers: str) -> Any:
+    return client.post("/api/ask", json={"url": "https://example.com/", "question": "Why?"}, headers=headers)
+
+
+def test_a_visitor_over_the_question_limit_is_told_to_wait() -> None:
+    client = _client(ClientLimits(asks_per_minute=2, asks_per_day=100, loads_per_hour=100))
+
+    assert [_ask(client).status_code for _ in range(2)] == [200, 200]
+    response = _ask(client)
+
+    assert response.status_code == 429
+    assert response.json()["detail"].startswith("You're asking questions too quickly. Please try again in about ")
+    assert 1 <= int(response.headers["Retry-After"]) <= 60
+
+
+def test_the_daily_question_limit_is_explained_in_plain_words() -> None:
+    client = _client(ClientLimits(asks_per_minute=100, asks_per_day=1, loads_per_hour=100))
+    _ask(client)
+
+    response = _ask(client)
+
+    assert response.status_code == 429
+    assert "today's limit of questions" in response.json()["detail"]
+    assert int(response.headers["Retry-After"]) > 3600
+
+
+def test_questions_over_the_limit_never_reach_the_pipeline() -> None:
+    client = _client(ClientLimits(asks_per_minute=1, asks_per_day=100, loads_per_hour=100))
+    _ask(client)
+    unloaded = client.post("/api/ask", json={"url": "https://unloaded.example/", "question": "Why?"})
+
+    assert unloaded.status_code == 429  # it was refused before the pipeline could say the page is not loaded
+
+
+def test_a_made_up_forwarded_address_does_not_get_a_fresh_limit() -> None:
+    client = _client(ClientLimits(asks_per_minute=1, asks_per_day=100, loads_per_hour=100))
+
+    assert _ask(client, **{"X-Forwarded-For": "198.51.100.1"}).status_code == 200
+    assert _ask(client, **{"X-Forwarded-For": "198.51.100.2"}).status_code == 429
+
+
+def test_loading_and_deleting_pages_share_one_limit_that_questions_do_not_use() -> None:
+    client = _client(ClientLimits(asks_per_minute=100, asks_per_day=100, loads_per_hour=2))
+
+    assert client.post("/api/ingest", json={"url": "example.com"}).status_code == 200
+    assert client.delete("/api/page", params={"url": "known.example"}).status_code == 200
+    blocked = client.post("/api/ingest", json={"url": "example.com"})
+    blocked_delete = client.delete("/api/page", params={"url": "known.example"})
+
+    assert blocked.status_code == 429
+    assert "loaded a lot of pages" in blocked.json()["detail"]
+    assert blocked_delete.status_code == 429
+    assert len(_pipeline().ingest_calls) == 1  # the refused load never reached the pipeline
+    assert _ask(client).status_code == 200
+
+
+def test_limits_that_are_switched_off_let_everything_through() -> None:
+    client = _client(ClientLimits(asks_per_minute=1, asks_per_day=1, loads_per_hour=1, enabled=False))
+
+    assert all(_ask(client).status_code == 200 for _ in range(5))
