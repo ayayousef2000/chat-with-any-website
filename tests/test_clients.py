@@ -7,12 +7,13 @@ import cohere.errors as cohere_errors
 import groq
 import httpx
 import pytest
+import weaviate
 
 from app.embeddings import CohereEmbedder
 from app.llm import SYSTEM_PROMPT, GroqChat
 from app.reranking import CohereReranker
 from app.upstream import Retrier, RetryPolicy, retry_after_seconds
-from app.vector_store import RetrievedChunk
+from app.vector_store import RetrievedChunk, WeaviateStore
 
 
 def _chunk(index: int, heading: str = "Intro") -> RetrievedChunk:
@@ -513,3 +514,39 @@ def test_complete_also_moves_on_to_the_next_key_when_a_limit_is_reached() -> Non
 
     assert chat.complete([{"role": "user", "content": "hi"}]) == "Answer 1 [1]"
     assert keys.used == [0, 1]
+
+
+# --- connecting to Weaviate ---------------------------------------------------------------------------------------
+
+
+class _FakeCollections:
+    def exists(self, name: str) -> bool:
+        return True
+
+    def use(self, name: str) -> str:
+        return name
+
+
+class _FakeWeaviate:
+    collections = _FakeCollections()
+
+
+def test_weaviate_gets_the_configured_time_for_its_startup_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def connect(**kwargs: Any) -> _FakeWeaviate:
+        captured.update(kwargs)
+        return _FakeWeaviate()
+
+    monkeypatch.setattr(weaviate, "connect_to_weaviate_cloud", connect)
+
+    WeaviateStore("https://cluster.example", "key", "Chunks", init_timeout=25)
+
+    assert captured["additional_config"].timeout.init == 25
+    assert captured["cluster_url"] == "https://cluster.example"
+
+
+def test_the_startup_time_for_weaviate_is_30_seconds_unless_set() -> None:
+    from app.config import Settings
+
+    assert Settings.model_fields["weaviate_init_timeout_seconds"].default == 30

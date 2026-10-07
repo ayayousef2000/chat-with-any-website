@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     weaviate_url: str
     weaviate_api_key: str
     weaviate_collection: str = "WebsiteChunk"
+    weaviate_init_timeout_seconds: int = Field(default=30, gt=0)
 
     # LLM (Groq)
     groq_api_key: str

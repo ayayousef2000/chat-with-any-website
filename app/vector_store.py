@@ -8,7 +8,7 @@ import weaviate
 from weaviate.classes.aggregate import GroupByAggregate
 from weaviate.classes.config import Configure, DataType, Property, Tokenization
 from weaviate.classes.data import DataObject
-from weaviate.classes.init import Auth
+from weaviate.classes.init import AdditionalConfig, Auth, Timeout
 from weaviate.classes.query import Filter, HybridFusion, MetadataQuery
 from weaviate.collections import Collection
 
@@ -36,10 +36,12 @@ class RetrievedChunk:
 class WeaviateStore:
     """Stores chunk vectors in Weaviate and searches them."""
 
-    def __init__(self, url: str, api_key: str, collection_name: str) -> None:
+    def __init__(self, url: str, api_key: str, collection_name: str, init_timeout: int = 30) -> None:
+        # The client allows only 2 seconds for its startup checks, which a slow connection can miss.
         self._client = weaviate.connect_to_weaviate_cloud(
             cluster_url=url,
             auth_credentials=Auth.api_key(api_key),
+            additional_config=AdditionalConfig(timeout=Timeout(init=init_timeout)),
         )
         self._collection = self._get_or_create_collection(collection_name)
 
