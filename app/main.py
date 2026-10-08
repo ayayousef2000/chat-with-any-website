@@ -171,6 +171,16 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/health", include_in_schema=False)
+async def health() -> dict[str, str]:
+    """Say that the server is running, for the health check of the hosting platform.
+
+    It answers at once and calls no outside service, so that a slow Cohere, Groq or Weaviate never makes the
+    platform think the app is down and restart it. It is not counted against the limits per visitor.
+    """
+    return {"status": "ok"}
+
+
 def limit_asks(request: Request) -> None:
     """Count a question against the limits of the caller, or refuse it."""
     limits: ClientLimits | None = getattr(request.app.state, "limits", None)  # set at startup
