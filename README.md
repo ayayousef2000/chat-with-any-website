@@ -53,6 +53,20 @@ uv run uvicorn app.main:app --reload
 
 Open http://127.0.0.1:8000, load a page, and start asking questions.
 
+## Docker
+
+The `Dockerfile` builds a small image with only the runtime dependencies, runs as an unprivileged user, and contains no settings: they come from environment variables (see [`.env.example`](.env.example)), and the `.env` file is kept out of the build by `.dockerignore`.
+
+```bash
+docker build -t chat-with-any-website .
+docker run --rm -p 8000:8000 --env-file .env -v chat-data:/app/data chat-with-any-website
+```
+
+- The volume keeps the usage records of stored pages (`data/state.db`) when the container is replaced.
+- Behind a proxy, add `-e FORWARDED_ALLOW_IPS=<the proxy's address>` so that each visitor's own address is used for the [limits per visitor](#limits-per-visitor). Without it, every visitor looks like the proxy.
+- The image does not include the optional browser fallback for JavaScript-rendered pages.
+- The base images are pinned to exact digests, and Dependabot proposes updates. CI builds the image and checks it on every pull request.
+
 ## Evaluate
 
 `eval/run_eval.py` loads the pages in a question set, asks every question, and reports retrieval hit rate, faithfulness and correctness. The last two are scored by a judge model. See `eval/questions.example.json` for the format, and add your own pages and questions.
