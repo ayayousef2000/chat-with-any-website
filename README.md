@@ -1,11 +1,57 @@
 # Chat With Any Website
 
-Enter a URL, then ask questions about the page's content. Answers are grounded in the page and cite the excerpts they come from.
+[![CI](https://github.com/ayayousef2000/chat-with-any-website/actions/workflows/ci.yml/badge.svg)](https://github.com/ayayousef2000/chat-with-any-website/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/ayayousef2000/chat-with-any-website)](LICENSE)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/)
+
+Paste the address of a web page, then ask questions about it. Answers come only from that page and carry numbered citations: click one to see the passage it is based on.
+
+## Features
+
+- **Grounded answers.** The model sees only excerpts of the page. When the page does not cover a question, it says so instead of guessing.
+- **Citations you can check.** Each cited source shows the matching line or sentences with the matching words highlighted, and the full section is one click away.
+- **Any language.** The answer is written in the language of the question. Tested on English and Arabic pages.
+- **Kind to free plans.** Rate limits and short outages of the services are waited out, several Groq keys are used in turn, and each visitor has limits.
+- **Light and dark themes.** The page follows the setting of your device, and a switch in the header lets you choose System, Light or Dark.
+- **Private by design.** Stored pages are deleted automatically after a short time, or at once with **Delete data**.
+- **Ready to deploy.** A Docker image, a Render blueprint and a `/health` endpoint are included.
+
+## Contents
+
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Deploy](#docker) · [Evaluate](#evaluate) · [API](#api) · [Configuration](#configuration) · [Behaviour in detail](#how-sources-are-shown) · [Privacy](#privacy) · [Limitations](#limitations) · [Contributing](#contributing)
+
+## Quick start
+
+You need Python 3.14 or newer, [uv](https://docs.astral.sh/uv/), and API keys for [Cohere](https://dashboard.cohere.com/api-keys), [Weaviate Cloud](https://console.weaviate.cloud) (the free sandbox works; copy its REST endpoint and an API key) and [Groq](https://console.groq.com/keys).
+
+```bash
+uv sync
+cp .env.example .env        # then fill in your keys
+uv run uvicorn app.main:app --reload
+```
+
+Open http://127.0.0.1:8000, load a page, and start asking questions. [Node.js](https://nodejs.org/) 24 or newer (see `.nvmrc`) is only needed to run the tests of the page script.
 
 ## How it works
 
-```
-Website → Content extraction → Cleaning → Chunking → Embeddings → Vector database → Retrieval → LLM response
+```mermaid
+flowchart LR
+    subgraph load [Load a page]
+        direction LR
+        A[Download the page] --> B[Extract the main text]
+        B --> C[Clean the text]
+        C --> D[Split into chunks]
+        D --> E[Embed with Cohere]
+        E --> F[(Weaviate)]
+    end
+    subgraph ask [Ask a question]
+        direction LR
+        Q[Question] --> H[Hybrid search]
+        H --> R[Rerank with Cohere]
+        R --> L[Answer with Groq]
+        L --> S[Answer with numbered citations]
+    end
+    F -.-> H
 ```
 
 | Step | Module | Implementation |
@@ -17,41 +63,10 @@ Website → Content extraction → Cleaning → Chunking → Embeddings → Vect
 | Embeddings | `app/embeddings.py` | Cohere `embed-v5.0-pro`; each chunk is embedded with its page title and section heading as a prefix (`search_document` for chunks, `search_query` for questions) |
 | Vector database | `app/vector_store.py` | Weaviate Cloud collection with self-provided vectors, one set of chunks per URL |
 | Retrieval | `app/vector_store.py` | Hybrid search (keyword + vector, relative score fusion) filtered by URL, 25 candidates |
-| Reranking | `app/reranking.py` | Cohere `rerank-v4.0-fast` keeps the best 5 candidates |
+| Reranking | `app/reranking.py` | Cohere `rerank-v4.0-fast` keeps the best 3 candidates (`TOP_K`) |
 | LLM response | `app/llm.py` | `openai/gpt-oss-120b` on Groq, instructed to answer only from the retrieved excerpts |
 
 `app/pipeline.py` ties the steps together, and `app/main.py` exposes them through a FastAPI app, with security headers (including a strict content security policy) and a web UI made of `app/static/index.html`, `styles.css` and `app.js`.
-
-## Requirements
-
-- Python 3.14+
-- [uv](https://docs.astral.sh/uv/)
-- [Node.js](https://nodejs.org/) 24 or newer, only to run the tests of the page script (`.nvmrc` has the version)
-- API keys for [Cohere](https://dashboard.cohere.com/api-keys), [Weaviate Cloud](https://console.weaviate.cloud) and [Groq](https://console.groq.com/keys)
-
-## Setup
-
-1. Install dependencies:
-
-   ```bash
-   uv sync
-   ```
-
-2. Create a Weaviate Cloud cluster (the free sandbox works) and copy its REST endpoint and an API key.
-
-3. Create your environment file and fill in the keys:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-## Run
-
-```bash
-uv run uvicorn app.main:app --reload
-```
-
-Open http://127.0.0.1:8000, load a page, and start asking questions.
 
 ## Docker
 
@@ -88,13 +103,24 @@ The [limits per visitor](#limits-per-visitor) tell visitors apart by network add
 
 ## Evaluate
 
-`eval/run_eval.py` loads the pages in a question set, asks every question, and reports retrieval hit rate, faithfulness and correctness. The last two are scored by a judge model. See `eval/questions.example.json` for the format, and add your own pages and questions.
+`eval/run_eval.py` loads the pages of a question set, asks every question, and reports the retrieval hit rate, faithfulness and correctness. The last two are scored by a judge model that uses the same Groq keys as the app.
 
 ```bash
-uv run python eval/run_eval.py eval/questions.example.json --out eval/results.json
+uv run python eval/run_eval.py eval/questions.json --out eval/results.json
 ```
 
-Run it before and after changing chunk size, `HYBRID_ALPHA`, `TOP_K` or the reranker to see whether the change helped.
+- `eval/questions.json`: 30 questions on 6 pages (English and Arabic), 4 answerable questions and 1 the page does not cover for each page.
+- `eval/questions.hard.json`: 24 questions on 5 pages, with details deep in long pages, answers that combine two sections, and 5 near-miss questions the page does not cover.
+- `--pause` (default 10 seconds) waits between questions, which keeps the run under the per-minute limits of the free plans; `--no-ingest` skips loading pages that are already stored.
+
+Results with the default settings:
+
+| Question set | Expected phrase retrieved | Faithful | Correct |
+|---|---|---|---|
+| `questions.json` (30) | 23 of 24 | 30 of 30 | 30 of 30 |
+| `questions.hard.json` (24) | 19 of 19 | 24 of 24 | 24 of 24 |
+
+On the harder set, switching reranking off, using vector search only, and keeping 3 or 5 excerpts all scored the same. Run the script before and after changing the chunk size, `HYBRID_ALPHA`, `TOP_K` or the reranker to see whether a change helps. `eval/questions.example.json` shows the file format.
 
 ## JavaScript-rendered pages
 
@@ -121,6 +147,9 @@ Interactive API docs are available at http://127.0.0.1:8000/docs.
 ## Configuration
 
 All settings are read from environment variables or `.env`. See [`.env.example`](.env.example) for the full list.
+
+<details>
+<summary>All settings and their defaults</summary>
 
 | Variable | Default | Description |
 |---|---|---|
@@ -152,64 +181,34 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `CLEANUP_INTERVAL_SECONDS` | `60` | How often the background cleanup runs |
 | `STATE_DB_PATH` | `data/state.db` | SQLite file with the usage times of stored pages |
 
+</details>
+
 If you change the embedding model, the dimension, the chunk settings or the code that builds chunks, use a new `WEAVIATE_COLLECTION` name, because vectors and chunks stored in an existing collection won't match the new settings (or re-load each page).
-
-## Development
-
-One command runs everything that must pass before a commit: type-check (mypy, strict), lint (Ruff), format check (Ruff) and tests (pytest with coverage):
-
-```bash
-uv run poe check
-```
-
-| Command | What it does |
-|---|---|
-| `uv run poe check` | Types, lint, format check, Python tests and page script tests |
-| `uv run poe fix` | Apply Ruff's automatic lint fixes and formatting |
-| `uv run poe types` / `lint` / `format` / `test` / `test-js` | Run a single step |
-
-### Git hooks
-
-Install the hooks once after cloning:
-
-```bash
-uv run pre-commit install
-```
-
-Before every commit the hooks then run:
-
-- file hygiene checks (merge conflict markers, large files, private keys, valid YAML/TOML/JSON, line endings)
-- a secret scan of the staged changes (gitleaks), and a block on committing `.env` files
-- `uv run poe check`
-
-The commit message must follow [Conventional Commits](https://www.conventionalcommits.org/), for example `feat: add reranking` or `fix(extraction): reject invalid ports`. Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
-
-### Conventions
-
-- Public modules, classes and functions have docstrings (Google style), enforced by Ruff.
-- Logic that does not need the network lives in plain functions that are unit-tested in `tests/`; the external services (Cohere, Weaviate, Groq) are replaced by fakes in tests.
-- The interface colours live in `app/static/styles.css` and follow the system light or dark setting. `tests/js/contrast.test.js` reads that file and checks the contrast of every text and background pair in both themes, so a colour change that hurts readability fails the build.
-- Secrets live only in `.env`, which is git-ignored.
-
-## Contributing
-
-Work happens on branches created from `develop` and is merged into `develop` through pull requests; releases go from `develop` to `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full flow and [SECURITY.md](SECURITY.md) to report a vulnerability.
-
-## License
-
-Released under the [MIT License](LICENSE).
 
 ## How sources are shown
 
-A source is the whole section of the page that was used, but a question is usually about one fact in it. So each source first shows the line or sentences that best match the question and the answer, with the matching words highlighted, and the rest of the section is one click away (**Show full section**). The match is calculated in the browser from the question, the answer and the section text, so it costs no extra calls to any service. It compares three-letter groups instead of whole words, so it works with word forms, with Arabic, and with languages written without spaces. When the answer names code in backticks, the line that defines that name is chosen. If nothing matches well, the beginning of the section is shown instead.
+A source is the whole section of the page that was used, but a question is usually about one fact in it. So each source first shows the line or sentences that best match the question and the answer, with the matching words highlighted, and the rest of the section is one click away (**Show full section**).
+
+- The match is calculated in the browser from the question, the answer and the section text, so it costs no extra calls to any service.
+- It compares three-letter groups instead of whole words, so it works with word forms, with Arabic, and with languages written without spaces.
+- When the answer names code in backticks, the line that defines that name is chosen.
+- If nothing matches well, the beginning of the section is shown instead.
 
 ## Rate limits
 
-The free plans of Cohere and Groq limit how fast requests may come (Groq's free plan allows about 8,000 tokens a minute, which is a few questions). When a service answers "too many requests" or is briefly unavailable, the app waits for the time the service names, or a growing pause when it names none, and tries again, up to `RETRY_ATTEMPTS` tries and `RETRY_BUDGET_SECONDS` of waiting. While it waits, the page says it is still working. If a service asks for a longer wait than `RETRY_MAX_WAIT_SECONDS`, the app does not hold the visitor up: it answers with a message that says how long to wait ("We're busy right now. Please try again in about 23 seconds.") and sends a `Retry-After` header. Errors that trying again cannot fix, such as a wrong key, are shown at once.
+The free plans of Cohere and Groq limit how fast requests may come (Groq's free plan allows about 8,000 tokens a minute, which is a few questions).
+
+- When a service answers "too many requests" or is briefly unavailable, the app waits for the time the service names, or a growing pause when it names none, and tries again, up to `RETRY_ATTEMPTS` tries and `RETRY_BUDGET_SECONDS` of waiting. While it waits, the page says it is still working.
+- If a service asks for a longer wait than `RETRY_MAX_WAIT_SECONDS`, the app does not hold the visitor up: it answers with a message that says how long to wait ("We're busy right now. Please try again in about 23 seconds.") and sends a `Retry-After` header.
+- Errors that trying again cannot fix, such as a wrong key, are shown at once.
 
 ### Limits per visitor
 
-To keep one visitor from using up the free plans, the API limits each visitor (told apart by network address) to `RATE_LIMIT_ASKS_PER_MINUTE` questions a minute, `RATE_LIMIT_ASKS_PER_DAY` questions a day, and `RATE_LIMIT_LOADS_PER_HOUR` page loads and deletes an hour. A visitor over a limit gets a message that says how long to wait ("You're asking questions too quickly. Please try again in about 20 seconds.") and a `Retry-After` header, and the request is not passed on to any service. The counts are kept in memory, so they restart with the server and are not shared between several server processes. Behind a proxy, start uvicorn with `--proxy-headers` and `--forwarded-allow-ips` set to the proxy's address, so that each visitor's own address is used; otherwise every visitor looks like the proxy. The `X-Forwarded-For` header itself is never read by the app, because anyone can send one.
+To keep one visitor from using up the free plans, the API limits each visitor (told apart by network address) to `RATE_LIMIT_ASKS_PER_MINUTE` questions a minute, `RATE_LIMIT_ASKS_PER_DAY` questions a day, and `RATE_LIMIT_LOADS_PER_HOUR` page loads and deletes an hour.
+
+- A visitor over a limit gets a message that says how long to wait ("You're asking questions too quickly. Please try again in about 20 seconds.") and a `Retry-After` header, and the request is not passed on to any service.
+- The counts are kept in memory, so they restart with the server and are not shared between several server processes.
+- Behind a proxy, start uvicorn with `--proxy-headers` and `--forwarded-allow-ips` set to the proxy's address, so that each visitor's own address is used; otherwise every visitor looks like the proxy. The `X-Forwarded-For` header itself is never read by the app, because anyone can send one.
 
 ## How long pages are kept
 
@@ -227,10 +226,24 @@ The times of use are kept in a small SQLite file (`STATE_DB_PATH`, git-ignored) 
 
 ## Privacy
 
-The text of every page you load is sent to Cohere (embeddings and reranking) and stored in your Weaviate database, and the excerpts used to answer a question are sent to Groq. Nothing is sent anywhere else. Answers can be wrong, so check the cited sources. Stored pages are deleted automatically as described above, or at once with **Delete data**.
+The text of every page you load is sent to Cohere (embeddings and reranking) and stored in your Weaviate database, and the excerpts used to answer a question are sent to Groq. Nothing is sent anywhere else. The page itself keeps two small things in your browser: your theme choice (until you pick System again) and the page you have loaded (until you close the tab). Answers can be wrong, so check the cited sources. Stored pages are deleted automatically as described above, or at once with **Delete data**.
 
 ## Limitations
 
 - Only the single page at the given URL is indexed; links are not crawled.
 - Pages that render their content with JavaScript may return little or no text unless the browser fallback is enabled.
 - Each question is answered independently; earlier messages are not used as context.
+
+## Contributing
+
+Work happens on branches created from `develop` and is merged into `develop` through pull requests; releases go from `develop` to `main`. One command runs everything that must pass before a commit (types, lint, format and tests):
+
+```bash
+uv run poe check
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full flow, the Git hooks and the conventions, and [SECURITY.md](SECURITY.md) to report a vulnerability.
+
+## License
+
+Released under the [MIT License](LICENSE).
