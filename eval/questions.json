@@ -1,0 +1,224 @@
+[
+  {
+    "url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+    "questions": [
+      {
+        "question": "In which year was the term retrieval-augmented generation introduced, and in what kind of publication?",
+        "reference": "It was introduced in 2020 in a research paper.",
+        "must_contain": [
+          "2020 paper"
+        ]
+      },
+      {
+        "question": "Where are the embeddings stored so that documents can be retrieved?",
+        "reference": "In a vector database.",
+        "must_contain": [
+          "vector database"
+        ]
+      },
+      {
+        "question": "Does RAG completely prevent hallucinations in language models?",
+        "reference": "No. RAG does not prevent hallucinations; the model can still hallucinate around the source material.",
+        "must_contain": [
+          "does not prevent hallucinations"
+        ]
+      },
+      {
+        "question": "How does RAG reduce the need to retrain a language model when there is new information?",
+        "reference": "Instead of retraining the model, the external knowledge base is updated with the new information, which saves computational and financial costs.",
+        "must_contain": [
+          "retrain"
+        ]
+      },
+      {
+        "question": "Which graphics card is required to run a RAG system?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://docs.python.org/3/library/json.html",
+    "questions": [
+      {
+        "question": "What does the ensure_ascii argument do when it is true, which is the default?",
+        "reference": "All non-ASCII characters in the output are escaped, so the output contains only ASCII characters.",
+        "must_contain": [
+          "non-ASCII"
+        ]
+      },
+      {
+        "question": "What error is raised when the data being deserialized is not a valid JSON document?",
+        "reference": "A JSONDecodeError is raised.",
+        "must_contain": [
+          "JSONDecodeError"
+        ]
+      },
+      {
+        "question": "Which special float values does the decoder understand even though they are not part of standard JSON?",
+        "reference": "NaN, Infinity and -Infinity.",
+        "must_contain": [
+          "Infinity"
+        ]
+      },
+      {
+        "question": "How do you get sorted keys and indented output from json.dumps?",
+        "reference": "Pass sort_keys=True and an indent value such as indent=4.",
+        "must_contain": [
+          "indent=4"
+        ]
+      },
+      {
+        "question": "How can I convert a Python dictionary to XML with the json module?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://docs.python.org/3/tutorial/venv.html",
+    "questions": [
+      {
+        "question": "Which command creates a virtual environment named tutorial-env?",
+        "reference": "python -m venv tutorial-env",
+        "must_contain": [
+          "python -m venv"
+        ]
+      },
+      {
+        "question": "How do you activate the virtual environment on Windows?",
+        "reference": "Run tutorial-env\\Scripts\\activate.",
+        "must_contain": [
+          "Scripts\\activate"
+        ]
+      },
+      {
+        "question": "Which file name is commonly used to store the list of installed packages?",
+        "reference": "requirements.txt, usually written from the output of pip freeze.",
+        "must_contain": [
+          "requirements.txt"
+        ]
+      },
+      {
+        "question": "How do you install a specific version of a package, for example requests 2.6.0?",
+        "reference": "python -m pip install requests==2.6.0",
+        "must_contain": [
+          "requests==2.6.0"
+        ]
+      },
+      {
+        "question": "How do I create a virtual environment with conda?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://peps.python.org/pep-0008/",
+    "questions": [
+      {
+        "question": "What maximum line length does PEP 8 recommend?",
+        "reference": "79 characters.",
+        "must_contain": [
+          "79 characters"
+        ]
+      },
+      {
+        "question": "What maximum line length is recommended for docstrings and comments?",
+        "reference": "72 characters.",
+        "must_contain": [
+          "72 characters"
+        ]
+      },
+      {
+        "question": "How many spaces should be used per indentation level?",
+        "reference": "4 spaces.",
+        "must_contain": [
+          "4 spaces"
+        ]
+      },
+      {
+        "question": "Which naming convention should class names normally use?",
+        "reference": "The CapWords convention.",
+        "must_contain": [
+          "CapWords"
+        ]
+      },
+      {
+        "question": "What does PEP 8 say about the maximum number of arguments a function may have?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+    "questions": [
+      {
+        "question": "Who began working on Python, and in which decade?",
+        "reference": "Guido van Rossum began working on Python in the late 1980s.",
+        "must_contain": [
+          "Guido van Rossum"
+        ]
+      },
+      {
+        "question": "In which year did Van Rossum first release Python, and as which version?",
+        "reference": "In 1991, as Python 0.9.0.",
+        "must_contain": [
+          "0.9.0"
+        ]
+      },
+      {
+        "question": "When was Python 3.0 released?",
+        "reference": "In 2008.",
+        "must_contain": [
+          "2008"
+        ]
+      },
+      {
+        "question": "How does Python manage memory?",
+        "reference": "With reference counting and a cycle-detecting garbage collector.",
+        "must_contain": [
+          "reference counting"
+        ]
+      },
+      {
+        "question": "Who won the Nobel Prize for creating Python?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://ar.wikipedia.org/wiki/ذكاء_اصطناعي",
+    "questions": [
+      {
+        "question": "من صاغ مصطلح «الذكاء الاصطناعي» ومتى؟",
+        "reference": "صاغه عالم الحاسوب جون مكارثي في عام 1956.",
+        "must_contain": [
+          "جون مكارثي"
+        ]
+      },
+      {
+        "question": "كيف عرّف جون مكارثي الذكاء الاصطناعي؟",
+        "reference": "بأنه «علم وهندسة صنع الآلات الذكية».",
+        "must_contain": [
+          "الآلات الذكية"
+        ]
+      },
+      {
+        "question": "متى ازدهر المجال ازدهارًا كبيرًا ولماذا؟",
+        "reference": "بعد سنة 2012، حين بدأ استخدام وحدات معالجة الرسوميات لتسريع الشبكات العصبية.",
+        "must_contain": [
+          "2012"
+        ]
+      },
+      {
+        "question": "ما الاختبار الذي ارتبط باسم آلان تورنغ؟",
+        "reference": "اختبار تورنغ.",
+        "must_contain": [
+          "اختبار تورنغ"
+        ]
+      },
+      {
+        "question": "كم يبلغ سعر شريحة H100؟",
+        "answerable": false
+      }
+    ]
+  }
+]

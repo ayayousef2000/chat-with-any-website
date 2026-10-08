@@ -93,6 +93,37 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  docker:
+    name: Docker image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the image
+        run: docker build --tag chat-with-any-website:ci .
+      - name: Smoke test the image
+        run: |
+          docker run --rm --interactive --env COHERE_API_KEY=ci --env WEAVIATE_URL=https://ci.invalid --env WEAVIATE_API_KEY=ci --env GROQ_API_KEY=ci chat-with-any-website:ci python - <<'PY'
+          import importlib.util
+          import os
+
+          from app.main import STATIC_DIR
+
+          assert (STATIC_DIR / "index.html").is_file(), "the page files are missing from the image"
+          assert os.getuid() != 0, "the image runs as root"
+          for tool in ("pytest", "mypy", "ruff"):
+              assert importlib.util.find_spec(tool) is None, f"{tool} is in the image"
+          print("the image looks right")
+          PY
+      - name: Check that no local or secret files are in the image
+        run: >-
+          docker run --rm chat-with-any-website:ci
+          sh -c 'test ! -e /app/.env && test ! -e /app/docs && test ! -e /app/tests && test ! -e /app/CLAUDE.md'
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-24.04
@@ -117,6 +148,22 @@ jobs:
           uvx pip-audit@2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
           --ignore-vuln PYSEC-2026-3740
 
+  page:
+    name: Page script tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - run: node --test tests/js/*.test.js
+
   workflows:
     name: Workflow security
     runs-on: ubuntu-24.04
@@ -138,7 +185,7 @@ jobs:
   ci-gate:
     name: CI passed
     if: always()
-    needs: [lint, test, build, audit, workflows]
+    needs: [lint, test, page, build, docker, audit, workflows]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}

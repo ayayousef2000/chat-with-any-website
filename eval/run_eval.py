@@ -1,7 +1,11 @@
 """Score the pipeline on a set of questions.
 
 Usage:
-    uv run python eval/run_eval.py eval/questions.example.json [--out results.json]
+    uv run python eval/run_eval.py eval/questions.json [--out eval/results.json] [--pause 10] [--no-ingest]
+
+The pause between questions keeps the run under the free plans' per-minute limits. Cohere's trial key allows
+10 reranking calls a minute, and when it refuses, the pipeline quietly ranks by search order instead, which would
+make the scores say less about reranking. About 10 seconds per question avoids that.
 
 Metrics per question:
     retrieval_hit  The retrieved excerpts contain at least one of the expected phrases (no LLM involved).
@@ -13,16 +17,17 @@ Metrics per question:
 import argparse
 import json
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from groq import Groq
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import get_settings
+from app.llm import GroqChat
 from app.pipeline import Pipeline
+from app.upstream import Retrier, RetryPolicy
 
 JUDGE_PROMPT = """You are a strict evaluator of a question-answering system that must answer only from page excerpts.
 Reply with a JSON object: {"faithful": true|false, "correct": true|false, "reason": "<one sentence>"}.
@@ -48,12 +53,11 @@ class Result:
     answer: str
 
 
-def judge(client: Groq, model: str, case: dict[str, Any], answer: str, excerpts: str) -> dict[str, Any]:
+def judge(chat: GroqChat, case: dict[str, Any], answer: str, excerpts: str) -> dict[str, Any]:
     """Ask the judge model whether an answer is faithful to the excerpts and correct.
 
     Args:
-        client: Groq client.
-        model: Judge model name.
+        chat: The Groq chat, which uses all configured keys in turn.
         case: The question case from the dataset.
         answer: The answer produced by the pipeline.
         excerpts: The retrieved text the answer should be based on.
@@ -66,13 +70,12 @@ def judge(client: Groq, model: str, case: dict[str, Any], answer: str, excerpts:
         f"Question: {case['question']}\n\nReference answer: {reference}\n\n"
         f"Retrieved excerpts:\n{excerpts or '(none)'}\n\nSystem answer: {answer}"
     )
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "system", "content": JUDGE_PROMPT}, {"role": "user", "content": user_message}],
+    reply = chat.complete(
+        [{"role": "system", "content": JUDGE_PROMPT}, {"role": "user", "content": user_message}],
         response_format={"type": "json_object"},
         temperature=0,
     )
-    verdict: dict[str, Any] = json.loads(completion.choices[0].message.content or "{}")
+    verdict: dict[str, Any] = json.loads(reply or "{}")
     return verdict
 
 
@@ -82,11 +85,18 @@ def main() -> None:
     parser.add_argument("dataset", type=Path)
     parser.add_argument("--out", type=Path, help="Write per-question results to this JSON file")
     parser.add_argument("--no-ingest", action="store_true", help="Skip loading the pages (already stored)")
+    parser.add_argument("--pause", type=float, default=10.0, help="Seconds to wait after each question (default 10)")
     args = parser.parse_args()
 
     settings = get_settings()
     pipeline = Pipeline(settings)
-    judge_client = Groq(api_key=settings.groq_api_key)
+    # The judge shares the keys of the app, and is patient: a run is allowed to wait for a limit to lift.
+    judge_chat = GroqChat(
+        api_key=settings.groq_api_key,
+        model=settings.groq_model,
+        backup_keys=settings.groq_backup_keys,
+        retrier=Retrier(RetryPolicy(attempts=5, max_delay=60.0, budget=240.0)),
+    )
     results: list[Result] = []
 
     try:
@@ -99,13 +109,13 @@ def main() -> None:
             for case in page["questions"]:
                 answerable = case.get("answerable", True)
                 outcome = pipeline.ask(url, case["question"])
-                excerpts = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(outcome.sources, start=1))
+                excerpts = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(outcome.retrieved, start=1))
 
                 phrases = [phrase.casefold() for phrase in case.get("must_contain", [])]
                 retrieval_hit = (
                     any(phrase in excerpts.casefold() for phrase in phrases) if answerable and phrases else None
                 )
-                verdict = judge(judge_client, settings.groq_model, case, outcome.answer, excerpts)
+                verdict = judge(judge_chat, case, outcome.answer, excerpts)
                 result = Result(
                     url=url,
                     question=case["question"],
@@ -118,7 +128,8 @@ def main() -> None:
                 )
                 results.append(result)
                 flags = f"hit={result.retrieval_hit} faithful={result.faithful} correct={result.correct}"
-                print(f"- {case['question']}\n    {flags}")
+                print(f"- {case['question']}\n    {flags}", flush=True)
+                time.sleep(args.pause)
     finally:
         pipeline.close()
 

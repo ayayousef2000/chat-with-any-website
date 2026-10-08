@@ -10,6 +10,8 @@ name = "chat-with-any-website"
 version = "0.1.0"
 description = "Ask questions about any web page using retrieval-augmented generation."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.14"
 dependencies = [
     "cohere>=7.2.0",
@@ -66,8 +68,10 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "S101", "S104"]
+"tests/**" = ["D", "S101", "S104", "RUF001"]  # RUF001: tests use real Arabic, Chinese and Cyrillic text
 "eval/**" = ["E402"]
+# The list of "edit" link words is real text in many languages, with look-alike characters on purpose.
+"app/cleaning.py" = ["RUF001"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -104,7 +108,8 @@ types = "mypy"
 lint = "ruff check ."
 format = "ruff format --check ."
 test = "pytest --cov --cov-report=term-missing:skip-covered"
+test-js = "node --test tests/js/*.test.js"
 fix = ["fix-lint", "fix-format"]
 fix-lint = "ruff check --fix ."
 fix-format = "ruff format ."
-check = ["types", "lint", "format", "test"]
+check = ["types", "lint", "format", "test", "test-js"]

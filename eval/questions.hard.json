@@ -1,0 +1,142 @@
+[
+  {
+    "url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+    "questions": [
+      {
+        "question": "Why can a vector search alone miss information, and how can that be mitigated?",
+        "reference": "Vector (semantic) search can miss key facts needed to answer a question. It can be mitigated with hybrid search: also run a traditional full text search and combine its results with the chunks from the vector search, using scoring or reranking, before giving the text to the language model.",
+        "must_contain": ["full text search"]
+      },
+      {
+        "question": "What is the difference between sparse and dense vectors?",
+        "reference": "Sparse vectors encode the identity of a word, are as long as the dictionary and mostly zeros. Dense vectors encode meaning, are more compact and contain fewer zeros.",
+        "must_contain": ["encode meaning"]
+      },
+      {
+        "question": "Which extra steps can some RAG models add after retrieval to improve the output?",
+        "reference": "Re-ranking of the retrieved information, context selection and fine-tuning.",
+        "must_contain": ["context selection"]
+      },
+      {
+        "question": "In which field has RAG been studied for grounding model outputs, and what challenges did reviews note?",
+        "reference": "Healthcare. Reviews noted continuing challenges around evaluation, ethics and clinical reliability.",
+        "must_contain": ["clinical reliability"]
+      },
+      {
+        "question": "Which vector database does the article recommend for production RAG systems?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://docs.python.org/3/library/json.html",
+    "questions": [
+      {
+        "question": "When are the keys sorted by sort_keys, relative to their conversion to strings?",
+        "reference": "The keys are sorted before they are converted to strings.",
+        "must_contain": ["before they are converted to strings"]
+      },
+      {
+        "question": "Which Python types are encoded as a JSON array by default?",
+        "reference": "list and tuple.",
+        "must_contain": ["list, tuple"]
+      },
+      {
+        "question": "What happens when check_circular is set to false?",
+        "reference": "The circular reference check for container types is skipped, so a circular reference results in an error such as RecursionError.",
+        "must_contain": ["circular reference check"]
+      },
+      {
+        "question": "Which encryption algorithm does the json module use to protect its output?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://peps.python.org/pep-0008/",
+    "questions": [
+      {
+        "question": "When may a team use a longer line limit than 79 characters, and what is the upper limit?",
+        "reference": "When the code is maintained exclusively or primarily by a team that can reach agreement, the limit may be raised up to 99 characters, as long as comments and docstrings are still wrapped at 72 characters.",
+        "must_contain": ["99 characters"]
+      },
+      {
+        "question": "Should long lines be broken with backslashes or with parentheses?",
+        "reference": "Wrapping expressions in parentheses is preferred to using a backslash for line continuation, although backslashes may still be appropriate at times.",
+        "must_contain": ["in preference to using a backslash"]
+      },
+      {
+        "question": "Into which groups should imports be arranged, and in what order?",
+        "reference": "1. Standard library imports, 2. related third party imports, 3. local application or library specific imports.",
+        "must_contain": ["Related third party imports"]
+      },
+      {
+        "question": "Which quote characters should triple-quoted strings use?",
+        "reference": "Double quote characters, to be consistent with the docstring convention in PEP 257.",
+        "must_contain": ["double quote characters"]
+      },
+      {
+        "question": "What does PEP 8 say about the maximum length of function names?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+    "questions": [
+      {
+        "question": "What was changed about the end of life of Python 2.7, and why?",
+        "reference": "It was initially set for 2015 and then postponed to 2020 because a large body of existing code could not easily be forward-ported to Python 3.",
+        "must_contain": ["forward-ported"]
+      },
+      {
+        "question": "What did Guido van Rossum announce on 12 July 2018?",
+        "reference": "His permanent vacation from his responsibilities as Python's benevolent dictator for life (BDFL).",
+        "must_contain": ["permanent vacation"]
+      },
+      {
+        "question": "Which language was Python a successor of, and where was Van Rossum working when he conceived it?",
+        "reference": "It was a successor to the ABC programming language, and he worked at Centrum Wiskunde & Informatica (CWI) in the Netherlands.",
+        "must_contain": ["Centrum Wiskunde"]
+      },
+      {
+        "question": "In which Python version was the walrus operator introduced, and what does it do?",
+        "reference": "Python 3.8. It assigns values to variables as part of a larger expression.",
+        "must_contain": ["walrus operator"]
+      },
+      {
+        "question": "Which Python version introduced the match statement?",
+        "answerable": false
+      }
+    ]
+  },
+  {
+    "url": "https://ar.wikipedia.org/wiki/ذكاء_اصطناعي",
+    "questions": [
+      {
+        "question": "ما الفئات الثلاث الرئيسية للذكاء الاصطناعي بحسب قدراته؟",
+        "reference": "الذكاء الاصطناعي الضيق، والذكاء الاصطناعي العام، والذكاء الاصطناعي الفائق.",
+        "must_contain": ["الذكاء الاصطناعي الفائق"]
+      },
+      {
+        "question": "أين ومتى انعقد المؤتمر الذي أسس المجال الحديث لبحوث الذكاء الاصطناعي؟",
+        "reference": "في حرم كلية دارتموث في صيف عام 1956.",
+        "must_contain": ["دارتموث"]
+      },
+      {
+        "question": "ما الذي أدى إلى تسارع النمو أكثر بعد سنة 2017؟",
+        "reference": "ظهور بنية المحوّل.",
+        "must_contain": ["المحوّل"]
+      },
+      {
+        "question": "كيف وصف الفيلسوف نيك بوستروم الذكاء الاصطناعي الفائق؟",
+        "reference": "بأنه ذكاء يفوق أفضل العقول البشرية في كل مجال تقريبًا.",
+        "must_contain": ["يفوق أفضل العقول البشرية"]
+      },
+      {
+        "question": "كم عدد الباحثين في الذكاء الاصطناعي في العالم اليوم؟",
+        "answerable": false
+      }
+    ]
+  }
+]

@@ -1,6 +1,6 @@
 name: PR title
 
-# Squash merges use the PR title as the commit message, so it must follow Conventional Commits.
+# Merge commits use the PR title as their message, so it must follow Conventional Commits.
 on:
   pull_request:
     branches: [develop, main]

@@ -29,3 +29,17 @@ class NotIngestedError(AppError):
     """A question was asked about a URL that has not been loaded."""
 
     status_code = 404
+
+
+class TooManyRequestsError(AppError):
+    """The caller used the API more often than the limits allow.
+
+    Attributes:
+        retry_after: How many seconds to wait before trying again.
+    """
+
+    status_code = 429
+
+    def __init__(self, message: str, retry_after: float) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after

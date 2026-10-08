@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import weaviate
+from weaviate.classes.aggregate import GroupByAggregate
 from weaviate.classes.config import Configure, DataType, Property, Tokenization
 from weaviate.classes.data import DataObject
-from weaviate.classes.init import Auth
+from weaviate.classes.init import AdditionalConfig, Auth, Timeout
 from weaviate.classes.query import Filter, HybridFusion, MetadataQuery
 from weaviate.collections import Collection
 
@@ -35,10 +36,12 @@ class RetrievedChunk:
 class WeaviateStore:
     """Stores chunk vectors in Weaviate and searches them."""
 
-    def __init__(self, url: str, api_key: str, collection_name: str) -> None:
+    def __init__(self, url: str, api_key: str, collection_name: str, init_timeout: int = 30) -> None:
+        # The client allows only 2 seconds for its startup checks, which a slow connection can miss.
         self._client = weaviate.connect_to_weaviate_cloud(
             cluster_url=url,
             auth_credentials=Auth.api_key(api_key),
+            additional_config=AdditionalConfig(timeout=Timeout(init=init_timeout)),
         )
         self._collection = self._get_or_create_collection(collection_name)
 
@@ -79,6 +82,23 @@ class WeaviateStore:
         if result.has_errors:
             first_error = next(iter(result.errors.values()))
             raise RuntimeError(f"Failed to store {len(result.errors)} chunk(s) in Weaviate: {first_error.message}")
+
+    def delete_source(self, url: str) -> None:
+        """Delete every chunk stored for a URL.
+
+        Args:
+            url: The normalized page address.
+        """
+        self._collection.data.delete_many(where=Filter.by_property("url").equal(url))
+
+    def list_sources(self) -> dict[str, int]:
+        """Count the stored chunks per URL.
+
+        Returns:
+            A mapping from page address to the number of chunks stored for it.
+        """
+        result = self._collection.aggregate.over_all(group_by=GroupByAggregate(prop="url"))
+        return {str(group.grouped_by.value): group.total_count or 0 for group in result.groups}
 
     def has_source(self, url: str) -> bool:
         """Check whether any chunks are stored for a URL.

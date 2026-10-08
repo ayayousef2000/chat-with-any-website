@@ -1,0 +1,27 @@
+# Render Blueprint: describes the web service so that it can be created from this repository in one step.
+# Secrets are not stored here: Render asks for them when the Blueprint is first applied (sync: false).
+services:
+  - type: web
+    name: chat-with-any-website
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Frankfurt is close to the Weaviate Cloud cluster in eu-central-1.
+    region: frankfurt
+    plan: free
+    # Deploy the released branch only, so that every push to develop does not reach visitors.
+    branch: main
+    autoDeployTrigger: commit
+    # Answers at once and calls no outside service (see app/main.py).
+    healthCheckPath: /health
+    envVars:
+      - key: COHERE_API_KEY
+        sync: false
+      - key: WEAVIATE_URL
+        sync: false
+      - key: WEAVIATE_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      # Optional: more Groq keys, separated by commas. Leave empty to use only GROQ_API_KEY.
+      - key: GROQ_BACKUP_API_KEYS
+        sync: false

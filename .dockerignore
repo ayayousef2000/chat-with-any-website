@@ -1,0 +1,33 @@
+# Keep secrets and local files out of the build context. The Dockerfile copies only what it needs, and this list is a
+# second safeguard.
+
+# Secrets and local configuration
+.env
+.env.*
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# Version control and automation
+.git/
+.gitattributes
+.github/
+.pre-commit-config.yaml
+
+# Local environments, caches and data
+.venv/
+**/__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+node_modules/
+data/
+*.log
+
+# Not needed to run the app
+docs/
+tests/
+eval/
+.nvmrc
+.python-version

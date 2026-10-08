@@ -7,6 +7,9 @@ docs/
 # Secrets
 .env
 
+# Local state (page usage database)
+data/
+
 # Python
 __pycache__/
 *.py[cod]

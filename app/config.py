@@ -21,14 +21,16 @@ class Settings(BaseSettings):
     weaviate_url: str
     weaviate_api_key: str
     weaviate_collection: str = "WebsiteChunk"
+    weaviate_init_timeout_seconds: int = Field(default=30, gt=0)
 
     # LLM (Groq)
     groq_api_key: str
     groq_model: str = "openai/gpt-oss-120b"
+    groq_backup_api_keys: str = ""  # more keys, separated by commas, used in order when the one before is limited
 
     # Reranking (Cohere)
     rerank_enabled: bool = True
-    cohere_rerank_model: str = "cohere-rerank-4-fast"
+    cohere_rerank_model: str = "rerank-v4.0-fast"
 
     # Fetching
     fetch_timeout_seconds: float = 20.0
@@ -42,8 +44,31 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=2000, gt=0)
     chunk_overlap: int = Field(default=300, ge=0)
     retrieve_k: int = Field(default=25, gt=0)
-    top_k: int = Field(default=5, gt=0)
+    top_k: int = Field(default=3, gt=0)
     hybrid_alpha: float = Field(default=0.65, ge=0, le=1)
+
+    # Trying again when a service says "too many requests" or is briefly unavailable
+    retry_attempts: int = Field(default=4, ge=1)
+    retry_max_wait_seconds: float = Field(default=20, gt=0)
+    retry_budget_seconds: float = Field(default=45, gt=0)
+
+    # Limits per visitor, so that nobody can use up the free plans of the services
+    rate_limit_enabled: bool = True
+    rate_limit_asks_per_minute: int = Field(default=6, gt=0)
+    rate_limit_asks_per_day: int = Field(default=60, gt=0)
+    rate_limit_loads_per_hour: int = Field(default=20, gt=0)
+
+    # Lifetime of stored pages
+    page_idle_minutes: float = Field(default=15, gt=0)
+    page_max_age_hours: float = Field(default=12, gt=0)
+    max_stored_chunks: int = Field(default=60_000, gt=0)
+    cleanup_interval_seconds: float = Field(default=60, gt=0)
+    state_db_path: str = "data/state.db"
+
+    @property
+    def groq_backup_keys(self) -> list[str]:
+        """The backup Groq keys in the order they are used, without blanks."""
+        return [key.strip() for key in self.groq_backup_api_keys.split(",") if key.strip()]
 
     @model_validator(mode="after")
     def _check_overlap(self) -> Self:

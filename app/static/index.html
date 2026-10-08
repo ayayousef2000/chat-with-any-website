@@ -3,225 +3,76 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Chat With Any Website</title>
-  <style>
-    :root {
-      --bg: #f6f7f9;
-      --surface: #ffffff;
-      --text: #1b1f24;
-      --muted: #5f6b7a;
-      --border: #dde1e6;
-      --accent: #4f5bd5;
-      --accent-text: #ffffff;
-      --user-bubble: #e8eafc;
-      --error: #c0392b;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #111418;
-        --surface: #1a1e24;
-        --text: #e6e9ee;
-        --muted: #98a2b0;
-        --border: #2c323a;
-        --accent: #7c86f0;
-        --accent-text: #0e1014;
-        --user-bubble: #262c4a;
-        --error: #ff6b5e;
-      }
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-    main {
-      max-width: 820px;
-      margin: 0 auto;
-      padding: 24px 16px;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    h1 { margin: 0; font-size: 1.5rem; }
-    .subtitle { margin: 4px 0 0; color: var(--muted); }
-    form { display: flex; gap: 8px; }
-    input {
-      flex: 1;
-      min-width: 0;
-      padding: 10px 12px;
-      font: inherit;
-      color: inherit;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-    }
-    input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-    button {
-      padding: 10px 16px;
-      font: inherit;
-      font-weight: 600;
-      color: var(--accent-text);
-      background: var(--accent);
-      border: 0;
-      border-radius: 8px;
-      cursor: pointer;
-    }
-    button:disabled { opacity: 0.55; cursor: not-allowed; }
-    .status { min-height: 1.5em; margin: 0; color: var(--muted); font-size: 0.9rem; }
-    .status.error { color: var(--error); }
-    #messages {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      padding: 16px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow-y: auto;
-      min-height: 320px;
-    }
-    .empty { margin: auto; color: var(--muted); text-align: center; }
-    .message { max-width: 90%; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .message.user { align-self: flex-end; background: var(--user-bubble); }
-    .message.assistant { align-self: flex-start; border: 1px solid var(--border); }
-    .message.error { color: var(--error); }
-    details { margin-top: 8px; font-size: 0.85rem; color: var(--muted); white-space: normal; }
-    summary { cursor: pointer; }
-    .source { margin: 8px 0 0; padding: 8px; border-left: 3px solid var(--border); white-space: pre-wrap; }
-    @media (max-width: 520px) {
-      form { flex-direction: column; }
-    }
-  </style>
+  <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/theme.js"></script>
 </head>
 <body>
   <main>
     <header>
-      <h1>Chat With Any Website</h1>
+      <div class="header-top">
+        <h1><img src="/static/favicon.svg?v=2" alt="" width="40" height="40">Chat With Any Website</h1>
+        <div id="theme-switch" class="theme-switch" role="group" aria-label="Color theme" hidden>
+          <button type="button" class="secondary" data-choice="system" aria-pressed="true" aria-label="System theme" title="System: follow your device">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+          </button>
+          <button type="button" class="secondary" data-choice="light" aria-pressed="false" aria-label="Light theme" title="Light">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          </button>
+          <button type="button" class="secondary" data-choice="dark" aria-pressed="false" aria-label="Dark theme" title="Dark">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          </button>
+        </div>
+      </div>
       <p class="subtitle">Load a web page, then ask questions about its content.</p>
     </header>
 
-    <form id="ingest-form">
-      <input id="url" type="text" inputmode="url" placeholder="https://example.com/article" required autocomplete="url">
-      <button id="ingest-button" type="submit">Load page</button>
-    </form>
-    <p id="status" class="status" role="status"></p>
+    <div class="load">
+      <form id="ingest-form">
+        <label for="url" class="sr-only">Web page address</label>
+        <input id="url" type="text" inputmode="url" placeholder="Paste any web page address" required
+               maxlength="2048" autocomplete="url" autocapitalize="off" spellcheck="false">
+        <button id="ingest-button" type="submit">Load page</button>
+      </form>
+      <p id="status" class="status" role="status"></p>
+    </div>
 
-    <section id="messages" aria-live="polite">
-      <p class="empty">No page loaded yet.</p>
-    </section>
+    <div id="page-bar" class="page-bar" hidden>
+      <span class="page-bar-text">
+        <span class="page-label">Chatting about</span>
+        <a id="page-link" dir="auto" target="_blank" rel="noopener noreferrer"></a>
+        <span id="page-meta" class="muted"></span>
+      </span>
+      <div class="page-actions">
+        <button id="refresh-page" type="button" class="secondary" title="Fetch the page again for its latest version">Refresh</button>
+        <button id="forget-page" type="button" class="secondary" title="Delete the saved copy of this page">Delete data</button>
+        <button id="new-chat" type="button" class="secondary">New chat</button>
+      </div>
+    </div>
+
+    <section id="messages" role="log" aria-label="Conversation" aria-live="polite"></section>
 
     <form id="ask-form">
-      <input id="question" type="text" placeholder="Ask a question about the page" required disabled>
+      <label for="question" class="sr-only">Your question</label>
+      <input id="question" type="text" dir="auto" placeholder="Ask a question about the page" required maxlength="2000"
+             autocomplete="off" disabled>
       <button id="ask-button" type="submit" disabled>Ask</button>
     </form>
   </main>
 
-  <script>
-    const ingestForm = document.getElementById("ingest-form");
-    const askForm = document.getElementById("ask-form");
-    const urlInput = document.getElementById("url");
-    const questionInput = document.getElementById("question");
-    const ingestButton = document.getElementById("ingest-button");
-    const askButton = document.getElementById("ask-button");
-    const statusEl = document.getElementById("status");
-    const messagesEl = document.getElementById("messages");
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <form method="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+      <div class="dialog-actions">
+        <button id="confirm-cancel" type="submit" value="cancel" class="secondary" autofocus>Cancel</button>
+        <button id="confirm-ok" type="submit" value="confirm" class="danger">Delete</button>
+      </div>
+    </form>
+  </dialog>
 
-    let activeUrl = null;
-
-    function setStatus(text, isError = false) {
-      statusEl.textContent = text;
-      statusEl.classList.toggle("error", isError);
-    }
-
-    function setAskEnabled(enabled) {
-      questionInput.disabled = !enabled;
-      askButton.disabled = !enabled;
-    }
-
-    async function postJson(path, payload) {
-      const response = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join("; ") : data.detail;
-        throw new Error(detail || `Request failed with status ${response.status}`);
-      }
-      return data;
-    }
-
-    function addMessage(role, text, sources = []) {
-      messagesEl.querySelector(".empty")?.remove();
-      const el = document.createElement("div");
-      el.className = `message ${role}`;
-      el.textContent = text;
-
-      if (sources.length) {
-        const details = document.createElement("details");
-        const summary = document.createElement("summary");
-        summary.textContent = `Sources (${sources.length})`;
-        details.append(summary);
-        sources.forEach((source, i) => {
-          const p = document.createElement("p");
-          p.className = "source";
-          p.textContent = `[${i + 1}] ${source.heading ? source.heading + ": " : ""}${source.text}`;
-          details.append(p);
-        });
-        el.append(details);
-      }
-
-      messagesEl.append(el);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
-
-    ingestForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      ingestButton.disabled = true;
-      setAskEnabled(false);
-      setStatus("Fetching, cleaning, chunking and embedding the page…");
-      try {
-        const result = await postJson("/api/ingest", { url: urlInput.value });
-        activeUrl = result.url;
-        urlInput.value = result.url;
-        messagesEl.replaceChildren();
-        setStatus(`Loaded "${result.title}" (${result.chunk_count} chunks). Ask away.`);
-        setAskEnabled(true);
-        questionInput.focus();
-      } catch (error) {
-        setStatus(error.message, true);
-        setAskEnabled(activeUrl !== null);
-      } finally {
-        ingestButton.disabled = false;
-      }
-    });
-
-    askForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const question = questionInput.value.trim();
-      if (!question || !activeUrl) return;
-
-      addMessage("user", question);
-      questionInput.value = "";
-      setAskEnabled(false);
-      setStatus("Thinking…");
-      try {
-        const result = await postJson("/api/ask", { url: activeUrl, question });
-        addMessage("assistant", result.answer, result.sources);
-        setStatus("");
-      } catch (error) {
-        addMessage("assistant error", error.message);
-        setStatus("");
-      } finally {
-        setAskEnabled(true);
-        questionInput.focus();
-      }
-    });
-  </script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

@@ -1,0 +1,476 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const { installFakeDom, FakeElement } = require("./fake-dom.js");
+
+installFakeDom();
+
+const page = require("../../app/static/app.js");
+
+const noCitations = () => null;
+
+function markdown(text, cite = noCitations) {
+  const container = new FakeElement("div");
+  page.renderMarkdown(container, text, cite);
+  return container.children.map((child) => child.toHTML()).join("");
+}
+
+test("paragraphs, with line breaks inside a paragraph", () => {
+  assert.equal(markdown("First line\nsecond line\n\nNext paragraph"), "<p>First line<br></br>second line</p><p>Next paragraph</p>");
+});
+
+test("bold, italic and inline code", () => {
+  assert.equal(
+    markdown("A **bold** and *italic* and `code` word"),
+    "<p>A <strong>bold</strong> and <em>italic</em> and <code>code</code> word</p>",
+  );
+});
+
+test("bullet and numbered lists", () => {
+  assert.equal(markdown("- one\n- two"), "<ul><li>one</li><li>two</li></ul>");
+  assert.equal(markdown("1. first\n2. second"), "<ol><li>first</li><li>second</li></ol>");
+});
+
+test("a list ends where the paragraph starts", () => {
+  assert.equal(markdown("- one\n\nAfter"), "<ul><li>one</li></ul><p>After</p>");
+});
+
+test("fenced code blocks keep their text exactly and are not interpreted", () => {
+  assert.equal(
+    markdown("Run:\n```python\nprint('**hi**')\nx = [1]\n```\nDone"),
+    "<p>Run:</p><pre><code>print('**hi**')\nx = [1]</code></pre><p>Done</p>",
+  );
+});
+
+test("an unclosed code fence runs to the end", () => {
+  assert.equal(markdown("```\nabc"), "<pre><code>abc</code></pre>");
+});
+
+test("headings become bold lines", () => {
+  assert.equal(markdown("## Title\nText"), '<p class="md-heading">Title</p><p>Text</p>');
+});
+
+test("HTML in the text is shown as text, never interpreted", () => {
+  const html = markdown('<img src=x onerror="alert(1)"> and <script>alert(1)</script>');
+  assert.ok(!html.includes("<img"));
+  assert.ok(!html.includes("<script"));
+  assert.ok(html.includes("&lt;img src=x"));
+});
+
+test("only http and https links become links", () => {
+  assert.equal(
+    markdown("See [docs](https://example.com/a?b=1) now"),
+    '<p>See <a href="https://example.com/a?b=1" rel="noopener noreferrer">docs</a> now</p>',
+  );
+  assert.ok(!markdown("[x](javascript:alert(1))").includes("<a"));
+  assert.ok(!markdown("[x](data:text/html,hi)").includes("<a"));
+});
+
+test("citations use the supplied node, also inside bold text", () => {
+  const cite = (number) => {
+    if (number > 2) return null;
+    const button = new FakeElement("button");
+    button.className = "cite";
+    button.textContent = `[${number}]`;
+    return button;
+  };
+  assert.equal(
+    markdown("Fact [1] and **bold [2]** but [7].", cite),
+    '<p>Fact <button class="cite">[1]</button> and <strong>bold <button class="cite">[2]</button></strong> but [7].</p>',
+  );
+});
+
+test("array syntax and list indexing are not mistaken for citations or italics", () => {
+  assert.equal(markdown("Use items[0] and [a, b]."), "<p>Use items[0] and [a, b].</p>");
+});
+
+test("safeUrl accepts only absolute http(s) addresses", () => {
+  assert.equal(page.safeUrl("https://example.com/x"), "https://example.com/x");
+  assert.equal(page.safeUrl("http://example.com"), "http://example.com");
+  assert.equal(page.safeUrl("javascript:alert(1)"), null);
+  assert.equal(page.safeUrl("//example.com"), null);
+  assert.equal(page.safeUrl("https://exa mple.com"), null);
+});
+
+test("plainText strips Markdown symbols from source excerpts", () => {
+  const input = "# Heading\n**Bold** and *italic* and `code` and [link](https://a.b/c).\n\n\n\n- item";
+  assert.equal(page.plainText(input), "Heading\nBold and italic and code and link.\n\n- item");
+});
+
+test("the note after a failed load names the page that is still loaded and says what to do", () => {
+  assert.equal(
+    page.stillLoadedNote("Quotes to Scrape"),
+    'Your current page, "Quotes to Scrape", is still loaded, so you can keep asking questions about it.',
+  );
+});
+
+test("friendlyError explains network failures and keeps server messages", () => {
+  assert.equal(page.friendlyError(new TypeError("Failed to fetch")), "We couldn't connect. Check your internet connection and try again.");
+  assert.equal(page.friendlyError(new Error("Wait a minute.")), "Wait a minute.");
+  assert.equal(page.friendlyError(null), "Something went wrong. Please try again.");
+});
+
+const SOURCES = [
+  { number: 1, heading: "## Intro", text: "**first** text" },
+  { number: 3, heading: "", text: "third text" },
+];
+
+function sourceState(list) {
+  const [summary, first, third] = list.details.children;
+  return {
+    open: list.details.open,
+    first: first.hidden ? "hidden" : "shown",
+    third: third.hidden ? "hidden" : "shown",
+    summary: summary.textContent,
+  };
+}
+
+test("source list: labels use the answer's numbers and plain text", () => {
+  const list = page.buildSources(SOURCES);
+  const [, first, third] = list.details.children;
+  assert.equal(first.children[0].textContent, "[1] Intro");
+  assert.equal(first.children[1].textContent, "first text");
+  assert.equal(third.children[0].textContent, "[3]");
+  assert.deepEqual([list.has(1), list.has(2), list.has(3)], [true, false, true]);
+});
+
+test("source list: a citation shows only its source", () => {
+  const list = page.buildSources(SOURCES);
+  list.showOnly(1);
+  assert.deepEqual(sourceState(list), {
+    open: true,
+    first: "shown",
+    third: "hidden",
+    summary: "Sources (2) · showing [1] only",
+  });
+  list.showOnly(3);
+  assert.equal(sourceState(list).first, "hidden");
+  assert.equal(sourceState(list).third, "shown");
+});
+
+test("source list: the same citation again closes it", () => {
+  const list = page.buildSources(SOURCES);
+  list.showOnly(3);
+  list.showOnly(3);
+  assert.deepEqual(sourceState(list), { open: false, first: "shown", third: "shown", summary: "Sources (2)" });
+});
+
+test("source list: the Sources line shows all, then closes, then opens again", () => {
+  const list = page.buildSources(SOURCES);
+  const summary = list.details.children[0];
+  list.showOnly(1);
+  summary.click();
+  assert.deepEqual(sourceState(list), { open: true, first: "shown", third: "shown", summary: "Sources (2)" });
+  summary.click();
+  assert.equal(list.details.open, false);
+  summary.click();
+  assert.equal(list.details.open, true);
+});
+
+test("source list: showing a source scrolls to it and highlights it", () => {
+  const list = page.buildSources(SOURCES);
+  list.showOnly(3);
+  const third = list.details.children[2];
+  assert.equal(third.scrolled, true);
+  assert.equal(third.classList.contains("highlight"), true);
+});
+
+test("answer: citations to existing sources become buttons that open them", () => {
+  const answer = page.buildAnswer("It was 2020 [1][3] [9].", SOURCES);
+  const buttons = answer.body.find((element) => element.tag === "button");
+  assert.deepEqual(
+    buttons.map((button) => button.textContent),
+    ["[1]", "[3]"],
+  );
+  assert.equal(buttons[0].attributes["aria-label"], "Show source 1");
+  buttons[1].click();
+  assert.equal(answer.details.open, true);
+  assert.ok(answer.body.toHTML().includes("[9]"));
+});
+
+test("answer: without sources there are no buttons and no source list", () => {
+  const answer = page.buildAnswer("The page does not seem to cover it [1].", []);
+  assert.equal(answer.details, null);
+  assert.equal(answer.body.find((element) => element.tag === "button").length, 0);
+  assert.ok(answer.body.toHTML().includes("[1]"));
+});
+
+test("formatAge describes how old a saved copy is", () => {
+  assert.equal(page.formatAge(0), "just now");
+  assert.equal(page.formatAge(44), "just now");
+  assert.equal(page.formatAge(60), "1 minute ago");
+  assert.equal(page.formatAge(240), "4 minutes ago");
+  assert.equal(page.formatAge(3500), "58 minutes ago");
+  assert.equal(page.formatAge(3600), "1 hour ago");
+  assert.equal(page.formatAge(7300), "2 hours ago");
+});
+
+test("describeLoad only speaks up when a saved copy was used", () => {
+  assert.equal(page.describeLoad({ title: "T", reused: false, age_seconds: 0 }), "");
+  assert.equal(
+    page.describeLoad({ title: "My Page", reused: true, age_seconds: 240 }),
+    "This page was loaded 4 minutes ago. Use Refresh to get the latest version.",
+  );
+});
+
+test("the page bar says how long ago the page was loaded, and no technical details", () => {
+  const now = 1_000_000_000;
+  assert.equal(page.loadedText(now, now), "Loaded just now");
+  assert.equal(page.loadedText(now - 4 * 60_000, now), "Loaded 4 minutes ago");
+  assert.equal(page.loadedText(now - 2 * 3_600_000, now), "Loaded 2 hours ago");
+  assert.equal(page.loadedText(now + 5_000, now), "Loaded just now"); // a clock that is slightly ahead never shows a negative age
+});
+
+test("the time a page was loaded comes from the age the server reports for its stored copy", () => {
+  const now = 1_000_000_000;
+  assert.equal(page.loadedAtFrom({ age_seconds: 0 }, now), now);
+  assert.equal(page.loadedAtFrom({ age_seconds: 240 }, now), now - 240_000);
+  assert.equal(page.loadedAtFrom({}, now), now);
+});
+
+test("the page script never shows chunk counts to the visitor", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../app/static/app.js"), "utf8");
+  assert.doesNotMatch(source, /chunk/i);
+});
+
+function fakePost(script) {
+  const calls = [];
+  const post = async (path, payload) => {
+    calls.push([path, payload]);
+    const step = script.shift();
+    if (step instanceof Error) throw step;
+    return step;
+  };
+  return { post, calls };
+}
+
+test("askWithReload returns the answer when the page is still stored", async () => {
+  const { post, calls } = fakePost([{ answer: "ok" }]);
+  let reloads = 0;
+  const result = await page.askWithReload(post, "https://a.example/", "Why?", () => (reloads += 1));
+  assert.deepEqual(result, { answer: "ok" });
+  assert.equal(reloads, 0);
+  assert.deepEqual(calls, [["/api/ask", { url: "https://a.example/", question: "Why?" }]]);
+});
+
+test("askWithReload loads the page again when its saved copy is gone, then asks once more", async () => {
+  const { post, calls } = fakePost([new page.HttpError("not loaded", 404), { title: "T" }, { answer: "ok" }]);
+  let reloads = 0;
+  const result = await page.askWithReload(post, "https://a.example/", "Why?", () => (reloads += 1));
+  assert.deepEqual(result, { answer: "ok" });
+  assert.equal(reloads, 1);
+  assert.deepEqual(
+    calls.map(([path]) => path),
+    ["/api/ask", "/api/ingest", "/api/ask"],
+  );
+  assert.deepEqual(calls[1][1], { url: "https://a.example/" });
+});
+
+test("askWithReload does not reload for other errors", async () => {
+  const { post, calls } = fakePost([new page.HttpError("rate limit", 429)]);
+  await assert.rejects(page.askWithReload(post, "u", "q", () => assert.fail("must not reload")), /rate limit/);
+  assert.equal(calls.length, 1);
+  const network = fakePost([new TypeError("Failed to fetch")]);
+  await assert.rejects(page.askWithReload(network.post, "u", "q", () => assert.fail("must not reload")), TypeError);
+});
+
+test("askWithReload gives up when the second question fails too", async () => {
+  const { post, calls } = fakePost([new page.HttpError("gone", 404), { title: "T" }, new page.HttpError("gone", 404)]);
+  await assert.rejects(page.askWithReload(post, "u", "q", () => {}), /gone/);
+  assert.equal(calls.length, 3);
+});
+
+test("askWithReload reports a failed reload instead of asking again", async () => {
+  const { post, calls } = fakePost([new page.HttpError("gone", 404), new page.HttpError("page is down", 502)]);
+  await assert.rejects(page.askWithReload(post, "u", "q", () => {}), /page is down/);
+  assert.equal(calls.length, 2);
+});
+
+// A stand-in for the browser's <dialog>: showModal opens it, close() closes it and fires "close".
+class FakeDialog {
+  constructor({ supportsModal = true } = {}) {
+    this.open = false;
+    this.returnValue = "";
+    this.listeners = {};
+    this.shown = 0;
+    if (supportsModal) this.showModal = () => ((this.open = true), (this.shown += 1));
+  }
+
+  addEventListener(type, listener, options = {}) {
+    (this.listeners[type] ||= []).push({ listener, once: Boolean(options.once) });
+  }
+
+  removeEventListener(type, listener) {
+    this.listeners[type] = (this.listeners[type] || []).filter((entry) => entry.listener !== listener);
+  }
+
+  dispatch(type, event = {}) {
+    for (const entry of [...(this.listeners[type] || [])]) {
+      if (entry.once) this.removeEventListener(type, entry.listener);
+      entry.listener({ target: this, ...event });
+    }
+  }
+
+  close(value) {
+    if (value !== undefined) this.returnValue = value;
+    this.open = false;
+    this.dispatch("close");
+  }
+}
+
+function dialogParts(dialog) {
+  return {
+    dialog,
+    titleElement: { textContent: "" },
+    textElement: { textContent: "" },
+    confirmButton: { textContent: "" },
+  };
+}
+
+const OPTIONS = { title: "Delete the saved copy?", message: "This removes the text.", confirmLabel: "Delete" };
+
+test("confirmDialog shows the texts and resolves true when the user confirms", async () => {
+  const dialog = new FakeDialog();
+  const parts = dialogParts(dialog);
+  const answer = page.confirmDialog(parts, OPTIONS);
+
+  assert.equal(dialog.open, true);
+  assert.equal(parts.titleElement.textContent, "Delete the saved copy?");
+  assert.equal(parts.textElement.textContent, "This removes the text.");
+  assert.equal(parts.confirmButton.textContent, "Delete");
+
+  dialog.close("confirm"); // the Delete button
+  assert.equal(await answer, true);
+});
+
+test("confirmDialog resolves false for Cancel and for Escape", async () => {
+  const cancelled = new FakeDialog();
+  const first = page.confirmDialog(dialogParts(cancelled), OPTIONS);
+  cancelled.close("cancel");
+  assert.equal(await first, false);
+
+  const escaped = new FakeDialog();
+  const second = page.confirmDialog(dialogParts(escaped), OPTIONS);
+  escaped.close(); // Escape closes the dialog without a return value
+  assert.equal(await second, false);
+});
+
+test("confirmDialog treats a click on the backdrop as Cancel but not a click inside", async () => {
+  const dialog = new FakeDialog();
+  const answer = page.confirmDialog(dialogParts(dialog), OPTIONS);
+
+  dialog.dispatch("click", { target: { tagName: "BUTTON" } }); // inside the dialog
+  assert.equal(dialog.open, true);
+
+  dialog.dispatch("click", { target: dialog }); // the backdrop
+  assert.equal(dialog.open, false);
+  assert.equal(await answer, false);
+});
+
+test("confirmDialog cleans up after itself and can be used again", async () => {
+  const dialog = new FakeDialog();
+  const first = page.confirmDialog(dialogParts(dialog), OPTIONS);
+  dialog.close("confirm");
+  await first;
+  assert.equal(dialog.listeners.click.length, 0);
+
+  const second = page.confirmDialog(dialogParts(dialog), OPTIONS);
+  assert.equal(dialog.returnValue, ""); // the earlier answer does not carry over
+  dialog.close("cancel");
+  assert.equal(await second, false);
+  assert.equal(dialog.shown, 2);
+});
+
+test("confirmDialog falls back to the built-in confirmation without <dialog> support", async () => {
+  const asked = [];
+  globalThis.window = { confirm: (message) => (asked.push(message), true) };
+  try {
+    const result = await page.confirmDialog(dialogParts(new FakeDialog({ supportsModal: false })), OPTIONS);
+    assert.equal(result, true);
+    assert.match(asked[0], /Delete the saved copy\?/);
+    assert.match(asked[0], /This removes the text\./);
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test("withAvatar puts the assistant icon before the message in one row", () => {
+  const bubble = new FakeElement("div");
+  bubble.className = "message assistant";
+  const row = page.withAvatar(bubble);
+
+  assert.equal(row.tag, "div");
+  assert.ok(row.classList.contains("row"));
+  assert.equal(row.children.length, 2);
+  const [avatar, message] = row.children;
+  assert.equal(avatar.tag, "img");
+  assert.ok(avatar.classList.contains("avatar"));
+  assert.equal(avatar.alt, "Assistant");
+  assert.match(avatar.src, /^\/static\/favicon\.svg\?v=\d+$/);
+  assert.equal(message, bubble);
+});
+
+test("plainText turns tables into plain rows and drops the separator line", () => {
+  const table = "Intro\n| Name | Born |\n|---|---|\n| Ibn Khaldun | 1332 |\nEnd";
+  assert.equal(page.plainText(table), "Intro\nName  \u00b7  Born\nIbn Khaldun  \u00b7  1332\nEnd");
+  assert.equal(page.plainText("| | |\n|---|---|\nText"), "Text");
+  assert.equal(page.plainText("| a | b |\n| :--- | ---: |\n| c | d |"), "a  \u00b7  b\nc  \u00b7  d");
+});
+
+test("plainText keeps blank lines between paragraphs and ordinary dashes", () => {
+  assert.equal(page.plainText("One\n\nTwo - three -- four\n\nFive"), "One\n\nTwo - three -- four\n\nFive");
+});
+
+test("text blocks pick their own direction, so Arabic and Hebrew are aligned correctly", () => {
+  const container = new FakeElement("div");
+  page.renderMarkdown(container, "## Title\nParagraph\n\n- item one\n\n1. first", () => null);
+  const blocks = container.children;
+  assert.deepEqual(
+    blocks.map((block) => [block.tag, block.dir]),
+    [
+      ["p", "auto"],
+      ["p", "auto"],
+      ["ul", "auto"],
+      ["ol", "auto"],
+    ],
+  );
+});
+
+test("each source is aligned by its own language", () => {
+  const list = page.buildSources([{ number: 1, heading: "ابن خلدون", text: "نص عربي" }]);
+  assert.equal(list.details.children[1].dir, "auto");
+});
+
+test("choosing a source scrolls to the top of its excerpt, which can be taller than the chat", () => {
+  const list = page.buildSources([{ number: 1, heading: "", text: "long text" }]);
+  list.showOnly(1);
+  assert.equal(list.details.children[1].scrollOptions.block, "start");
+});
+
+test("startSlowNotice shows its message after the delay and can be cancelled", () => {
+  const original = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout };
+  const scheduled = [];
+  const cleared = [];
+  globalThis.setTimeout = (callback, delay) => (scheduled.push({ callback, delay }), scheduled.length);
+  globalThis.clearTimeout = (id) => cleared.push(id);
+  try {
+    const shown = [];
+    const cancel = page.startSlowNotice((message) => shown.push(message), "Still working", 8000);
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].delay, 8000);
+    assert.deepEqual(shown, [], "nothing is shown before the delay");
+
+    scheduled[0].callback();
+    assert.deepEqual(shown, ["Still working"]);
+
+    cancel();
+    assert.deepEqual(cleared, [1]);
+
+    page.startSlowNotice(() => {}, "x");
+    assert.equal(scheduled[1].delay, 8000, "the default delay is eight seconds");
+  } finally {
+    Object.assign(globalThis, original);
+  }
+});
