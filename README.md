@@ -67,6 +67,25 @@ docker run --rm -p 8000:8000 --env-file .env -v chat-data:/app/data chat-with-an
 - The image does not include the optional browser fallback for JavaScript-rendered pages.
 - The base images are pinned to exact digests, and Dependabot proposes updates. CI builds the image and checks it on every pull request.
 
+## Deploy on Render
+
+[`render.yaml`](render.yaml) describes the web service for [Render](https://render.com): it builds the `Dockerfile`, runs on the free plan in Frankfurt (close to a Weaviate Cloud cluster in `eu-central-1`), deploys only the `main` branch, and uses `/health` as its health check. The file holds no secrets.
+
+1. In the Render dashboard choose **New**, then **Blueprint**, and select this repository.
+2. Render reads `render.yaml` and asks for the secrets: `COHERE_API_KEY`, `WEAVIATE_URL`, `WEAVIATE_API_KEY`, `GROQ_API_KEY` and, if you have more than one Groq key, `GROQ_BACKUP_API_KEYS` (separated by commas). Any other setting from [`.env.example`](.env.example) can be added as an environment variable.
+3. Wait for the build. When `/health` answers, Render makes the service live.
+
+What to know about the free plan (from [Render's documentation](https://render.com/docs/free)):
+
+- A free web service **spins down after 15 minutes without traffic** and takes about a minute to start again, so the first visitor after a quiet period waits.
+- Free services **cannot have a persistent disk**, so the usage records of stored pages (`data/state.db`) are lost when the service restarts. Stored pages are found again in Weaviate on the next start.
+- Each workspace gets **750 free instance hours** a month.
+- In a test with the largest page tried (112,000 characters), the app used at most 187 MB of memory.
+- Render checks `/health` within a 5-second window; the endpoint answers at once and calls no outside service.
+- Render sets the `PORT` variable, and the image listens on it.
+
+The [limits per visitor](#limits-per-visitor) tell visitors apart by network address. On Render the app sees Render's proxy as the caller unless uvicorn is told which proxy addresses to trust, so by default all visitors are counted together.
+
 ## Evaluate
 
 `eval/run_eval.py` loads the pages in a question set, asks every question, and reports retrieval hit rate, faithfulness and correctness. The last two are scored by a judge model. See `eval/questions.example.json` for the format, and add your own pages and questions.
@@ -95,6 +114,7 @@ The browser loads the page and the resources it requests, so only enable this wh
 | `POST` | `/api/ingest` | `{"url": "...", "refresh": false}` | Makes a page ready: reuses a stored copy if there is one, otherwise fetches, cleans, chunks, embeds and stores it |
 | `DELETE` | `/api/page?url=...` | none | Deletes the stored copy of a page |
 | `POST` | `/api/ask` | `{"url": "...", "question": "..."}` | Answers a question about a previously loaded page |
+| `GET` | `/health` | none | Answers `{"status": "ok"}` at once without calling any service; for health checks |
 
 Interactive API docs are available at http://127.0.0.1:8000/docs.
 

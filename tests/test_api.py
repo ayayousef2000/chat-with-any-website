@@ -270,3 +270,27 @@ def test_limits_that_are_switched_off_let_everything_through() -> None:
     client = _client(ClientLimits(asks_per_minute=1, asks_per_day=1, loads_per_hour=1, enabled=False))
 
     assert all(_ask(client).status_code == 200 for _ in range(5))
+
+
+# --- health check ------------------------------------------------------------------------------------------------
+
+
+def test_health_answers_without_touching_any_service() -> None:
+    client = _client()
+    app.state.pipeline = None  # a health check must not need the pipeline or any outside service
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_health_is_not_counted_against_the_limits_per_visitor() -> None:
+    client = _client(ClientLimits(asks_per_minute=1, asks_per_day=1, loads_per_hour=1))
+
+    assert all(client.get("/health").status_code == 200 for _ in range(20))
+    assert _ask(client).status_code == 200  # the one allowed question is still available
+
+
+def test_health_is_not_listed_in_the_api_documentation() -> None:
+    assert "/health" not in _client().get("/openapi.json").json()["paths"]

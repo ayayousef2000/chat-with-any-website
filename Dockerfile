@@ -50,11 +50,12 @@ USER app
 
 EXPOSE 8000
 
-# The page itself is the simplest check that the server answers.
+# The /health endpoint answers at once and calls no outside service. The port is the PORT that hosting platforms
+# set (Render does), or 8000.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT', '8000'), timeout=3)"]
 
 # Settings come from environment variables (see .env.example); no .env file is copied into the image.
 # Behind a proxy, set FORWARDED_ALLOW_IPS to the proxy's address so that each visitor's own address is used for the
 # limits per visitor; uvicorn reads that variable.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
