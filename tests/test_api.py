@@ -146,6 +146,10 @@ def test_page_assets_are_served_from_static_files() -> None:
     assert 'id="page-link" dir="auto"' in html  # a title in another script keeps its own word order
     assert "<script>" not in html  # no inline script, which the content security policy would block
     assert "javascript" in client.get("/static/app.js").headers["content-type"]
+    # The theme switch is loaded in the head, so that a saved theme is applied before the page is first drawn.
+    assert '<script src="/static/theme.js"></script>' in html
+    assert "javascript" in client.get("/static/theme.js").headers["content-type"]
+    assert 'id="theme-switch"' in html
     assert client.get("/static/styles.css").status_code == 200
     assert client.get("/static/favicon.svg").status_code == 200
     # Browsers cache tab icons hard; the version in the address makes them fetch a changed icon.
@@ -294,3 +298,26 @@ def test_health_is_not_counted_against_the_limits_per_visitor() -> None:
 
 def test_health_is_not_listed_in_the_api_documentation() -> None:
     assert "/health" not in _client().get("/openapi.json").json()["paths"]
+
+
+# --- caching of the page and its files -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("path", ["/", "/static/styles.css", "/static/app.js", "/static/theme.js"])
+def test_the_page_and_its_files_must_be_checked_again_before_a_browser_reuses_them(path: str) -> None:
+    # Without this, a browser may keep an old stylesheet for hours and show a new page with old styles.
+    assert _client().get(path).headers["cache-control"] == "no-cache"
+
+
+def test_an_unchanged_file_costs_only_a_not_modified_answer() -> None:
+    client = _client()
+    first = client.get("/static/styles.css")
+
+    again = client.get("/static/styles.css", headers={"If-None-Match": first.headers["etag"]})
+
+    assert again.status_code == 304
+    assert again.content == b""
+
+
+def test_the_interface_answers_are_not_marked_as_cacheable_pages() -> None:
+    assert "cache-control" not in _client().get("/health").headers

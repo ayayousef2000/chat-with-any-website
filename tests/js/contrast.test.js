@@ -16,10 +16,45 @@ function variables(block) {
   return found;
 }
 
+// Splits "a, rgba(1, 2, 3, 0.5)" at the commas that are not inside parentheses.
+function splitArguments(text) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "(") depth += 1;
+    else if (text[i] === ")") depth -= 1;
+    else if (text[i] === "," && depth === 0) {
+      parts.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start).trim());
+  return parts;
+}
+
+// Every color is written once as light-dark(light value, dark value); the fonts are plain values.
+function pairs() {
+  const root = variables(css.match(/:root\s*\{([\s\S]*?)\n\}/)[1]);
+  const found = {};
+  const plain = [];
+  for (const [name, value] of Object.entries(root)) {
+    const pair = value.match(/^light-dark\(([\s\S]*)\)$/);
+    if (pair) found[name] = splitArguments(pair[1]);
+    else plain.push(name);
+  }
+  return { found, plain };
+}
+
 function themes() {
-  const light = css.match(/:root\s*\{([\s\S]*?)\n\}/)[1];
-  const dark = css.match(/@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{([\s\S]*?)\n\s*\}\s*\}/)[1];
-  return { light: { ...variables(light) }, dark: { ...variables(light), ...variables(dark) } };
+  const { found } = pairs();
+  const light = {};
+  const dark = {};
+  for (const [name, [lightValue, darkValue]] of Object.entries(found)) {
+    light[name] = lightValue;
+    dark[name] = darkValue;
+  }
+  return { light, dark };
 }
 
 function parseColor(value) {
@@ -107,8 +142,19 @@ test("the page bar names the active page with a label in the muted color, which 
   assert.match(css, /\.page-label \{[^}]*color: var\(--muted\);/);
 });
 
-test("the stylesheet defines both themes with the same set of colors", () => {
-  const { light, dark } = themes();
-  assert.ok(Object.keys(light).length >= 20);
-  assert.deepEqual(Object.keys(dark).sort(), Object.keys(light).sort());
+test("every color is one light-dark pair with a light and a dark value, and only the fonts are plain", () => {
+  const { found, plain } = pairs();
+  assert.ok(Object.keys(found).length >= 20);
+  for (const [name, values] of Object.entries(found)) {
+    assert.equal(values.length, 2, `--${name} must have exactly a light and a dark value`);
+    for (const value of values) assert.doesNotThrow(() => parseColor(value), `--${name}: ${value}`);
+  }
+  assert.deepEqual(plain.sort(), ["mono", "sans", "serif"]);
+});
+
+test("the switch can force a theme, and the palette is not written a second time for the device setting", () => {
+  assert.match(css, /:root\[data-theme="light"\]\s*\{\s*color-scheme: light;\s*\}/);
+  assert.match(css, /:root\[data-theme="dark"\]\s*\{\s*color-scheme: dark;\s*\}/);
+  assert.match(css, /:root\s*\{\s*color-scheme: light dark;/);
+  assert.doesNotMatch(css, /@media \(prefers-color-scheme/);
 });

@@ -155,6 +155,10 @@ async def add_security_headers(request: Request, call_next: Callable[[Request], 
     response.headers["Referrer-Policy"] = "no-referrer"
     if not request.url.path.startswith(DOCS_PATHS):
         response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+    # The page and its files carry only a date, which lets a browser keep an old copy for hours after an update, so
+    # the new page could meet old styles. "no-cache" makes the browser ask first; an unchanged file costs a 304.
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 
