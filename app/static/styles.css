@@ -10,55 +10,34 @@
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
 
-  /* Light theme */
-  --bg: #eef8f4;
-  --surface: rgba(255, 255, 255, 0.75);
-  --text: #0b2a22;
-  --muted: #456459;
-  --border: rgba(6, 107, 74, 0.2);
-  --accent: #066b4a;
-  --accent-text: #ffffff;
-  --user-bubble: rgba(6, 107, 74, 0.1);
-  --code-bg: rgba(6, 107, 74, 0.07);
-  --error: #b3321f;
-  --cite: #066b4a;
-  --cite-bg: rgba(6, 107, 74, 0.1);
-  --flash: rgba(255, 95, 162, 0.2);
-  --glow1: rgba(52, 245, 165, 0.1);
-  --glow2: rgba(255, 95, 162, 0.08);
-  --btn-text: #ffffff;
-  --g1: #066b4a;
-  --g2: #0a6d77;
-  --shadow: rgba(6, 107, 74, 0.25);
-  --danger: #b3321f;
-  --danger-text: #ffffff;
+  /* Every color is written once, as light-dark(light value, dark value). Which side is used depends on color-scheme:
+     the setting of the device by default, or the choice made with the switch in the header (see theme.js). */
+  --bg: light-dark(#eef8f4, #050d12);
+  --surface: light-dark(rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.05));
+  --text: light-dark(#0b2a22, #e8f6f0);
+  --muted: light-dark(#456459, #a6c5ba);
+  --border: light-dark(rgba(6, 107, 74, 0.2), rgba(255, 255, 255, 0.12));
+  --accent: light-dark(#066b4a, #34f5a5);
+  --accent-text: light-dark(#ffffff, #04130d);
+  --user-bubble: light-dark(rgba(6, 107, 74, 0.1), rgba(52, 245, 165, 0.14));
+  --code-bg: light-dark(rgba(6, 107, 74, 0.07), rgba(0, 0, 0, 0.4));
+  --error: light-dark(#b3321f, #ffa3a3);
+  --cite: light-dark(#066b4a, #34f5a5);
+  --cite-bg: light-dark(rgba(6, 107, 74, 0.1), rgba(52, 245, 165, 0.16));
+  --flash: light-dark(rgba(255, 95, 162, 0.2), rgba(255, 95, 162, 0.22));
+  --glow1: light-dark(rgba(52, 245, 165, 0.1), rgba(52, 245, 165, 0.22));
+  --glow2: light-dark(rgba(255, 95, 162, 0.08), rgba(255, 95, 162, 0.16));
+  --btn-text: light-dark(#ffffff, #04130d);
+  --g1: light-dark(#066b4a, #34f5a5);
+  --g2: light-dark(#0a6d77, #22d3ee);
+  --shadow: light-dark(rgba(6, 107, 74, 0.25), rgba(52, 245, 165, 0.35));
+  --danger: light-dark(#b3321f, #ffa3a3);
+  --danger-text: light-dark(#ffffff, #2a0a0a);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #050d12;
-    --surface: rgba(255, 255, 255, 0.05);
-    --text: #e8f6f0;
-    --muted: #a6c5ba;
-    --border: rgba(255, 255, 255, 0.12);
-    --accent: #34f5a5;
-    --accent-text: #04130d;
-    --user-bubble: rgba(52, 245, 165, 0.14);
-    --code-bg: rgba(0, 0, 0, 0.4);
-    --error: #ffa3a3;
-    --cite: #34f5a5;
-    --cite-bg: rgba(52, 245, 165, 0.16);
-    --flash: rgba(255, 95, 162, 0.22);
-    --glow1: rgba(52, 245, 165, 0.22);
-    --glow2: rgba(255, 95, 162, 0.16);
-    --btn-text: #04130d;
-    --g1: #34f5a5;
-    --g2: #22d3ee;
-    --shadow: rgba(52, 245, 165, 0.35);
-    --danger: #ffa3a3;
-    --danger-text: #2a0a0a;
-  }
-}
+/* The switch in the header sets data-theme on the page. Without it, the device decides. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
@@ -118,6 +97,48 @@ h1 img {
 }
 
 .subtitle { margin: 4px 0 0; color: var(--muted); font-family: var(--serif); font-style: italic; }
+
+/* The title and the theme switch share the top row; the switch is three icon buttons in a pill. */
+.header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.header-top h1 { min-width: 0; }
+
+.theme-switch {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.theme-switch[hidden] { display: none; }
+
+.theme-switch button.secondary {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 999px;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+}
+
+.theme-switch button.secondary:hover:not(:disabled):not([aria-pressed="true"]) { background: var(--cite-bg); }
+.theme-switch button.secondary[aria-pressed="true"] { color: var(--cite); background: var(--cite-bg); border-color: var(--cite); }
+
+.theme-switch svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .muted { color: var(--muted); }
 
 .sr-only {
