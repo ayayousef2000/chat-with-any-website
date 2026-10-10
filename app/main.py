@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.errors import AppError, TooManyRequestsError
 from app.janitor import Janitor
 from app.pipeline import Pipeline
-from app.ratelimit import ClientLimits
+from app.ratelimit import ClientLimits, client_id
 from app.upstream import RATE_LIMIT_ERRORS, UNAVAILABLE_ERRORS, public_error_details
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     janitor.start()
     app.state.pipeline = pipeline
     app.state.limits = ClientLimits.from_settings(settings)
+    app.state.debug_client_address = settings.debug_client_address
     try:
         yield
     finally:
@@ -159,6 +160,12 @@ async def add_security_headers(request: Request, call_next: Callable[[Request], 
     # the new page could meet old styles. "no-cache" makes the browser ask first; an unchanged file costs a 304.
     if request.url.path == "/" or request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-cache"
+    # Diagnosis only, off by default: lets a test of a new hosting setup see which address the app takes for a
+    # caller, and the forwarded header it received, without reading the logs of the host.
+    if request.url.path == "/health" and getattr(request.app.state, "debug_client_address", False):
+        response.headers["X-Debug-Peer"] = request.client.host if request.client else ""
+        response.headers["X-Debug-Forwarded-For"] = request.headers.get("x-forwarded-for", "")
+        response.headers["X-Debug-Client-Id"] = client_id(request)
     return response
 
 

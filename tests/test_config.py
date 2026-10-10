@@ -124,3 +124,9 @@ def test_valid_tenant_names_are_accepted(monkeypatch: pytest.MonkeyPatch, name: 
 def test_invalid_tenant_names_stop_the_start(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     with pytest.raises(ValidationError, match="weaviate_tenant"):
         _settings(monkeypatch, WEAVIATE_TENANT=name)
+
+
+def test_the_diagnosis_of_the_caller_address_is_off_unless_switched_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEBUG_CLIENT_ADDRESS", raising=False)
+    assert _settings(monkeypatch).debug_client_address is False
+    assert _settings(monkeypatch, DEBUG_CLIENT_ADDRESS="true").debug_client_address is True
