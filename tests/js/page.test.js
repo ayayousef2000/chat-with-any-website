@@ -197,7 +197,7 @@ test("answer: without sources there are no buttons and no source list", () => {
   assert.ok(answer.body.toHTML().includes("[1]"));
 });
 
-test("formatAge describes how old a saved copy is", () => {
+test("formatAge describes how long ago something happened", () => {
   assert.equal(page.formatAge(0), "just now");
   assert.equal(page.formatAge(44), "just now");
   assert.equal(page.formatAge(60), "1 minute ago");
@@ -207,27 +207,17 @@ test("formatAge describes how old a saved copy is", () => {
   assert.equal(page.formatAge(7300), "2 hours ago");
 });
 
-test("describeLoad only speaks up when a saved copy was used", () => {
-  assert.equal(page.describeLoad({ title: "T", reused: false, age_seconds: 0 }), "");
-  assert.equal(
-    page.describeLoad({ title: "My Page", reused: true, age_seconds: 240 }),
-    "This page was loaded 4 minutes ago. Use Refresh to get the latest version.",
-  );
+test("the page bar says how long ago the visitor opened the page, and no technical details", () => {
+  const now = 1_000_000_000;
+  assert.equal(page.openedText(now, now), "Opened just now");
+  assert.equal(page.openedText(now - 4 * 60_000, now), "Opened 4 minutes ago");
+  assert.equal(page.openedText(now - 2 * 3_600_000, now), "Opened 2 hours ago");
+  assert.equal(page.openedText(now + 5_000, now), "Opened just now"); // a clock that is slightly ahead never shows a negative age
 });
 
-test("the page bar says how long ago the page was loaded, and no technical details", () => {
-  const now = 1_000_000_000;
-  assert.equal(page.loadedText(now, now), "Loaded just now");
-  assert.equal(page.loadedText(now - 4 * 60_000, now), "Loaded 4 minutes ago");
-  assert.equal(page.loadedText(now - 2 * 3_600_000, now), "Loaded 2 hours ago");
-  assert.equal(page.loadedText(now + 5_000, now), "Loaded just now"); // a clock that is slightly ahead never shows a negative age
-});
-
-test("the time a page was loaded comes from the age the server reports for its stored copy", () => {
-  const now = 1_000_000_000;
-  assert.equal(page.loadedAtFrom({ age_seconds: 0 }, now), now);
-  assert.equal(page.loadedAtFrom({ age_seconds: 240 }, now), now - 240_000);
-  assert.equal(page.loadedAtFrom({}, now), now);
+test("the page script does not use anything that tells whether a stored copy came from another visitor", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../app/static/app.js"), "utf8");
+  assert.doesNotMatch(source, /reused|age_seconds/);
 });
 
 test("the page script never shows chunk counts to the visitor", () => {

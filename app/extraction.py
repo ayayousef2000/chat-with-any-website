@@ -4,6 +4,7 @@ import asyncio
 import ipaddress
 import logging
 import socket
+import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
@@ -28,6 +29,7 @@ NO_TEXT_MESSAGE = (
 TIMEOUT_MESSAGE = "The website took too long to respond. Try again in a moment."
 UNREACHABLE_MESSAGE = "We couldn't reach that website. Check the address and try again."
 TOO_LARGE_MESSAGE = "This page is too large to load. Try a shorter page."
+TOO_MANY_REDIRECTS_MESSAGE = "That address sends you around in circles. Try the final address of the page."
 UNREADABLE_MESSAGE = "We couldn't read this page. Try a different one."
 BROWSER_FAILED_MESSAGE = "We couldn't load this page. Try again in a moment."
 BROWSER_UNAVAILABLE_MESSAGE = "This page needs a feature that isn't available right now. Try a different page."
@@ -36,6 +38,16 @@ BROWSER_UNAVAILABLE_MESSAGE = "This page needs a feature that isn't available ri
 # content with JavaScript: such pages measure a few dozen characters, while the smallest real pages (like
 # example.com) still have well over this.
 MIN_READABLE_CHARS = 100
+
+# Limits of one download: redirects followed, addresses tried for one name, and the whole time as a multiple of the
+# timeout of a single step (which a site sending a few bytes at a time would otherwise stretch without end).
+MAX_REDIRECTS = 5
+MAX_ADDRESSES_TRIED = 4
+TOTAL_TIME_FACTOR = 2
+
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# Addresses in this range stand for IPv4 addresses (RFC 6052); 64:ff9b::a00:1 reaches 10.0.0.1 through a NAT64 gateway.
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
 
 _FILE_KINDS = {"image": "an image", "video": "a video", "audio": "an audio file"}
 
@@ -101,54 +113,126 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc.lower(), parts.path or "/", parts.query, ""))
 
 
-def _assert_public_host(url: str) -> None:
-    """Refuse URLs that resolve to private, loopback or otherwise non-public addresses."""
-    host = urlsplit(url).hostname
-    if not host:
-        raise InvalidURLError(INVALID_URL_MESSAGE)
+def _is_public(address: str) -> bool:
+    """Tell whether an address belongs to the public internet, also when it wraps an IPv4 address.
+
+    An IPv6 address can carry an IPv4 one (IPv4-mapped, 6to4 and the NAT64 prefix); the wrapped address decides.
+    """
+    ip = ipaddress.ip_address(address.split("%")[0])
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = ip.ipv4_mapped or ip.sixtofour
+        if embedded is None and ip in _NAT64_PREFIX:
+            embedded = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+        if embedded is not None and not embedded.is_global:
+            return False
+    return ip.is_global
+
+
+def _resolve_public_addresses(host: str) -> list[str]:
+    """Look the host up once and return its addresses, refusing hosts that have any non-public address."""
     try:
-        addresses = {str(info[4][0]) for info in socket.getaddrinfo(host, None)}
+        infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
         raise InvalidURLError(f"We couldn't find a website at {host}. Check the spelling and try again.") from exc
-    for address in addresses:
-        if not ipaddress.ip_address(address.split("%")[0]).is_global:
-            raise InvalidURLError(PRIVATE_ADDRESS_MESSAGE)
+    addresses = list(dict.fromkeys(str(info[4][0]) for info in infos))
+    if not addresses or not all(_is_public(address) for address in addresses):
+        raise InvalidURLError(PRIVATE_ADDRESS_MESSAGE)
+    return addresses
 
 
-def _check_request(request: httpx.Request) -> None:
-    # Runs for the first request and for every redirect hop.
-    _assert_public_host(str(request.url))
+def _check_deadline(deadline: float) -> None:
+    if time.monotonic() > deadline:
+        raise FetchError(TIMEOUT_MESSAGE)
+
+
+def _send_pinned(client: httpx.Client, target: httpx.URL, addresses: list[str], deadline: float) -> httpx.Response:
+    """Connect to the address that was checked, not to a fresh lookup of the name.
+
+    The name is only used for the Host header and for the TLS check, so a second answer of the name server
+    (DNS rebinding) cannot lead the connection to a private address.
+    """
+    host = target.raw_host.decode("ascii")
+    failure: httpx.TransportError | None = None
+    for address in addresses[:MAX_ADDRESSES_TRIED]:
+        _check_deadline(deadline)
+        request = client.build_request(
+            "GET",
+            target.copy_with(host=address),
+            headers={"Host": target.netloc.decode("ascii")},
+            extensions={"sni_hostname": host},
+        )
+        try:
+            return client.send(request, stream=True)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            failure = exc
+    if failure is None:  # pragma: no cover - the caller passes at least one address
+        raise AssertionError("no address to connect to")
+    raise failure
+
+
+def _redirect_target(response: httpx.Response, current: httpx.URL) -> httpx.URL | None:
+    """The address a redirect points to, or ``None`` when the response is not a redirect."""
+    location = response.headers.get("location")
+    if response.status_code not in _REDIRECT_STATUSES or not location:
+        return None
+    target = current.join(location)
+    return target.copy_with(fragment=None)
+
+
+def _read_body(response: httpx.Response, max_bytes: int, deadline: float) -> bytes:
+    """Read an HTML response within the size limit and the deadline."""
+    response.raise_for_status()
+    content_type = response.headers.get("content-type", "")
+    if "html" not in content_type:
+        raise ExtractionError(_content_type_message(content_type))
+    body = bytearray()
+    for part in response.iter_bytes():
+        body.extend(part)
+        if len(body) > max_bytes:
+            raise FetchError(TOO_LARGE_MESSAGE)
+        _check_deadline(deadline)  # a site that sends a few bytes at a time cannot keep the request open
+    return bytes(body)
 
 
 def fetch_html(url: str, timeout: float, max_bytes: int) -> bytes:
-    """Download a page's HTML, enforcing a size limit and an HTML content type."""
-    client = httpx.Client(
-        follow_redirects=True,
-        timeout=timeout,
-        headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"},
-        event_hooks={"request": [_check_request]},
-    )
+    """Download a page's HTML, enforcing a size limit, an HTML content type and a total time limit.
+
+    Every address, including each redirect, is looked up once, checked and then connected to as checked.
+    """
+    deadline = time.monotonic() + timeout * TOTAL_TIME_FACTOR
+    current = url
     try:
-        with client, client.stream("GET", url) as response:
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "")
-            if "html" not in content_type:
-                raise ExtractionError(_content_type_message(content_type))
-            body = bytearray()
-            for part in response.iter_bytes():
-                body.extend(part)
-                if len(body) > max_bytes:
-                    raise FetchError(TOO_LARGE_MESSAGE)
+        for _ in range(MAX_REDIRECTS + 1):
+            _check_deadline(deadline)
+            target = httpx.URL(current)
+            if target.scheme not in {"http", "https"}:
+                raise FetchError(UNREACHABLE_MESSAGE)
+            addresses = _resolve_public_addresses(target.raw_host.decode("ascii"))
+            # One client per address: a pooled connection is never reused for another name; the environment's proxy
+            # settings are ignored because a proxy would do the connecting.
+            with httpx.Client(
+                timeout=timeout,
+                headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"},
+                trust_env=False,
+            ) as client:
+                response = _send_pinned(client, target, addresses, deadline)
+                try:
+                    redirect = _redirect_target(response, target)
+                    if redirect is None:
+                        return _read_body(response, max_bytes, deadline)
+                finally:
+                    response.close()
+            current = str(redirect)
+        raise FetchError(TOO_MANY_REDIRECTS_MESSAGE)
     except httpx.HTTPStatusError as exc:
         logger.info("%s answered with HTTP %s", url, exc.response.status_code)
         raise FetchError(_status_message(exc.response.status_code)) from exc
     except httpx.TimeoutException as exc:
         raise FetchError(TIMEOUT_MESSAGE) from exc
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
         # The library's own wording is for developers; it stays out of the message shown to the user.
         logger.warning("Could not fetch %s: %s", url, exc)
         raise FetchError(UNREACHABLE_MESSAGE) from exc
-    return bytes(body)
 
 
 def extract_content(html: bytes, url: str) -> ExtractedPage:
