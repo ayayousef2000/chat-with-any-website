@@ -78,8 +78,6 @@ def test_ingest_returns_summary() -> None:
         "url": "https://example.com/",
         "title": "Example",
         "chunk_count": 4,
-        "reused": False,
-        "age_seconds": 0,
     }
 
 
@@ -174,10 +172,13 @@ def test_api_docs_are_not_restricted_by_the_content_security_policy() -> None:
     assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
-def test_ingest_reports_when_a_saved_copy_was_used() -> None:
-    response = _client().post("/api/ingest", json={"url": "https://saved.example"})
-    assert response.json()["reused"] is True
-    assert response.json()["age_seconds"] == 240
+def test_ingest_does_not_tell_whether_a_copy_stored_by_someone_else_was_used() -> None:
+    """The answer for a stored copy looks exactly like the answer for a page that was just fetched."""
+    fresh = _client().post("/api/ingest", json={"url": "https://example.com"})
+    stored = _client().post("/api/ingest", json={"url": "https://saved.example"})
+
+    assert stored.json() == fresh.json()
+    assert not {"reused", "age_seconds"} & stored.json().keys()
 
 
 def test_ingest_passes_the_refresh_option_on() -> None:
