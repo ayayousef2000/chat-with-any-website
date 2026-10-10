@@ -32,20 +32,11 @@ function formatAge(seconds) {
   return `${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
-// "Loaded just now", "Loaded 4 minutes ago": how long ago a page was loaded, given the time it was loaded (ms).
-function loadedText(loadedAt, now = Date.now()) {
-  return `Loaded ${formatAge(Math.max(0, (now - loadedAt) / 1000))}`;
-}
-
-// Tells the user when a page came from a saved copy; a freshly fetched page needs no message.
-function describeLoad(result) {
-  if (!result.reused) return "";
-  return `This page was loaded ${formatAge(result.age_seconds)}. Use Refresh to get the latest version.`;
-}
-
-// The time (ms) a page was loaded, from the age the server reports for its stored copy.
-function loadedAtFrom(result, now = Date.now()) {
-  return now - (result.age_seconds || 0) * 1000;
+// "Opened just now", "Opened 4 minutes ago": how long ago this visitor opened the page, given that time (ms).
+// It is the visitor's own time. The server never says how old a stored copy is, because that would tell one visitor
+// that someone else loaded the same address a moment ago.
+function openedText(openedAt, now = Date.now()) {
+  return `Opened ${formatAge(Math.max(0, (now - openedAt) / 1000))}`;
 }
 
 // Asks a question. If the saved copy of the page is gone (it expired or was deleted), loads the page again and
@@ -608,7 +599,7 @@ function init() {
   const pageLink = document.getElementById("page-link");
   const pageMeta = document.getElementById("page-meta");
 
-  let page = null; // the page the questions are about: { url, title, loadedAt }
+  let page = null; // the page the questions are about: { url, title, openedAt }
   let busy = false;
 
   const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -655,7 +646,7 @@ function init() {
 
   // Shows how long ago the page was loaded; pages remembered by an older version of the script have no time.
   function renderPageMeta() {
-    pageMeta.textContent = page && page.loadedAt ? loadedText(page.loadedAt) : "";
+    pageMeta.textContent = page && page.openedAt ? openedText(page.openedAt) : "";
   }
 
   function showPage(newPage) {
@@ -753,9 +744,9 @@ function init() {
     try {
       const result = await postJson("/api/ingest", { url: urlInput.value });
       urlInput.value = result.url;
-      showPage({ url: result.url, title: result.title, loadedAt: loadedAtFrom(result) });
+      showPage({ url: result.url, title: result.title, openedAt: Date.now() });
       showEmptyState();
-      setStatus(describeLoad(result));
+      setStatus("");
     } catch (error) {
       // The previous page, if any, stays loaded and visible in the bar above the conversation.
       setStatus(friendlyError(error), true, page ? stillLoadedNote(page.title) : "");
@@ -779,7 +770,7 @@ function init() {
     try {
       const result = await askWithReload(postJson, page.url, question, () => {
         setStatus("The saved copy of the page expired. Loading it again…");
-        page.loadedAt = Date.now(); // the page is fetched again, so it is as new as it gets
+        page.openedAt = Date.now(); // the page is fetched again, so it is as new as it gets
         renderPageMeta();
         savePage();
       });
@@ -803,7 +794,7 @@ function init() {
     setStatus("Fetching the page again…");
     try {
       const result = await postJson("/api/ingest", { url: page.url, refresh: true });
-      showPage({ url: result.url, title: result.title, loadedAt: loadedAtFrom(result) });
+      showPage({ url: result.url, title: result.title, openedAt: Date.now() });
       setStatus(`Refreshed "${result.title}".`);
     } catch (error) {
       setStatus(friendlyError(error), true);
@@ -866,7 +857,7 @@ function init() {
   }
   showEmptyState();
   updateControls();
-  setInterval(renderPageMeta, 30_000); // keeps "Loaded 4 minutes ago" true while the tab stays open
+  setInterval(renderPageMeta, 30_000); // keeps "Opened 4 minutes ago" true while the tab stays open
 }
 
 if (typeof module !== "undefined" && module.exports) {
@@ -880,9 +871,7 @@ if (typeof module !== "undefined" && module.exports) {
     withAvatar,
     confirmDialog,
     formatAge,
-    loadedText,
-    loadedAtFrom,
-    describeLoad,
+    openedText,
     askWithReload,
     safeUrl,
     plainText,

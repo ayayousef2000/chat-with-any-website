@@ -66,13 +66,15 @@ class IngestRequest(BaseModel):
 
 
 class IngestResponse(BaseModel):
-    """Result of loading a page. ``reused`` means a stored copy, ``age_seconds`` old, was used."""
+    """Result of loading a page.
+
+    It does not say whether a copy that another visitor stored was used, or how old it is: that would show a
+    visitor that someone else loaded the same address a moment ago.
+    """
 
     url: str
     title: str
     chunk_count: int
-    reused: bool
-    age_seconds: int
 
 
 class ForgetResponse(BaseModel):
@@ -215,8 +217,6 @@ def ingest(body: IngestRequest, request: Request) -> IngestResponse:
         url=result.url,
         title=result.title,
         chunk_count=result.chunk_count,
-        reused=result.reused,
-        age_seconds=result.age_seconds,
     )
 
 

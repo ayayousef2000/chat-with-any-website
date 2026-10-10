@@ -44,22 +44,47 @@ def _fake_dns(*addresses: str) -> Any:
     return getaddrinfo
 
 
-@pytest.mark.parametrize("address", ["127.0.0.1", "10.0.0.5", "192.168.1.1", "169.254.169.254", "::1"])
+PRIVATE_FORMS = [
+    "127.0.0.1",
+    "10.0.0.5",
+    "192.168.1.1",
+    "172.16.0.9",
+    "169.254.169.254",
+    "100.64.0.1",
+    "0.0.0.0",
+    "::1",
+    "::",
+    "fe80::1",
+    "fc00::1",
+    "::ffff:10.0.0.1",  # IPv4 inside IPv6
+    "::ffff:127.0.0.1",
+    "64:ff9b::a00:1",  # 10.0.0.1 through a NAT64 gateway
+    "64:ff9b::7f00:1",  # 127.0.0.1 through a NAT64 gateway
+    "64:ff9b::a9fe:a9fe",  # 169.254.169.254 through a NAT64 gateway
+    "2002:a00:1::",  # 10.0.0.1 inside 6to4
+]
+
+
+@pytest.mark.parametrize("address", PRIVATE_FORMS)
 def test_private_addresses_are_blocked(monkeypatch: pytest.MonkeyPatch, address: str) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", _fake_dns(address))
     with pytest.raises(InvalidURLError, match="private network"):
-        extraction._assert_public_host("https://internal.example/")
+        extraction._resolve_public_addresses("internal.example")
 
 
-def test_public_address_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(socket, "getaddrinfo", _fake_dns("93.184.216.34"))
-    extraction._assert_public_host("https://example.com/")
+PUBLIC_FORMS = ["93.184.216.34", "8.8.8.8", "2606:4700::1111", "64:ff9b::808:808", "::ffff:8.8.8.8"]
+
+
+@pytest.mark.parametrize("address", PUBLIC_FORMS)
+def test_public_addresses_are_allowed(monkeypatch: pytest.MonkeyPatch, address: str) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_dns(address))
+    assert extraction._resolve_public_addresses("example.com") == [address]
 
 
 def test_host_with_any_private_address_is_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", _fake_dns("93.184.216.34", "10.0.0.1"))
     with pytest.raises(InvalidURLError):
-        extraction._assert_public_host("https://mixed.example/")
+        extraction._resolve_public_addresses("mixed.example")
 
 
 def test_unresolvable_host_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -68,7 +93,7 @@ def test_unresolvable_host_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
     with pytest.raises(InvalidURLError, match=r"couldn't find a website at nope\.invalid"):
-        extraction._assert_public_host("https://nope.invalid/")
+        extraction._resolve_public_addresses("nope.invalid")
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]) -> None:
