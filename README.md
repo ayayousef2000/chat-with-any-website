@@ -6,6 +6,8 @@
 
 Paste the address of a web page, then ask questions about it. Answers come only from that page and carry numbered citations: click one to see the passage it is based on.
 
+**Live demo: [chat-with-any-website-fnmo.onrender.com](https://chat-with-any-website-fnmo.onrender.com)**.
+
 ## Features
 
 - **Grounded answers.** The model sees only excerpts of the page. When the page does not cover a question, it says so instead of guessing.
@@ -35,23 +37,16 @@ Open http://127.0.0.1:8000, load a page, and start asking questions. [Node.js](h
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph load [Load a page]
         direction LR
-        A[Download the page] --> B[Extract the main text]
-        B --> C[Clean the text]
-        C --> D[Split into chunks]
-        D --> E[Embed with Cohere]
-        E --> F[(Weaviate)]
+        A[Download, extract and clean] --> D[Split into chunks] --> E[Embed with Cohere] --> F[(Weaviate)]
     end
     subgraph ask [Ask a question]
         direction LR
-        Q[Question] --> H[Hybrid search]
-        H --> R[Rerank with Cohere]
-        R --> L[Answer with Groq]
-        L --> S[Answer with numbered citations]
+        Q[Question] --> H[Hybrid search] --> R[Rerank with Cohere] --> L[Answer with Groq]
     end
-    F -.-> H
+    load -.-> ask
 ```
 
 | Step | Module | Implementation |
@@ -180,6 +175,8 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `RETRIEVE_K` | `25` | Candidates fetched from Weaviate before reranking |
 | `TOP_K` | `3` | Chunks passed to the LLM (3 and 5 scored the same on the evaluation set; 3 sends fewer tokens) |
 | `HYBRID_ALPHA` | `0.65` | Blend of vector and keyword search (1 = vector only, 0 = keyword only) |
+| `FETCH_TIMEOUT_SECONDS` | `20` | Seconds to wait for a page to download |
+| `FETCH_MAX_BYTES` | `5000000` | The largest page to download, in bytes (5 MB); a larger page is refused |
 | `BROWSER_FALLBACK` | `false` | Retry thin pages in a headless browser |
 | `MIN_TEXT_CHARS` | `500` | Text length below which the browser fallback is tried |
 | `RETRY_ATTEMPTS` | `4` | Most tries per call to Cohere or Groq, including the first |
