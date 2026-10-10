@@ -119,6 +119,14 @@ test("the page loads theme.js in its head, after the stylesheet, so the saved th
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/, "no inline script: the content security policy forbids it");
 });
 
+test("the page shrinks to the space above the on-screen keyboard, so the question box sits right on top of it", () => {
+  // Without this, Chromium browsers on Android keep the page as tall as the screen and leave a gap above the keyboard.
+  const viewport = html.match(/<meta name="viewport" content="([^"]*)"/)[1];
+  assert.match(viewport, /width=device-width/);
+  assert.match(viewport, /interactive-widget=resizes-content/);
+  assert.doesNotMatch(viewport, /user-scalable|maximum-scale/, "zooming stays possible");
+});
+
 test("the switch in the page is a labelled group of three icon buttons that starts hidden", () => {
   assert.match(html, /<div id="theme-switch" class="theme-switch" role="group" aria-label="Color theme" hidden>/);
   const names = { system: "System theme", light: "Light theme", dark: "Dark theme" };
