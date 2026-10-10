@@ -11,6 +11,7 @@ from weaviate.classes.data import DataObject
 from weaviate.classes.init import AdditionalConfig, Auth, Timeout
 from weaviate.classes.query import Filter, HybridFusion, MetadataQuery
 from weaviate.collections import Collection
+from weaviate.exceptions import UnexpectedStatusCodeError
 
 
 @dataclass(frozen=True)
@@ -33,34 +34,72 @@ class RetrievedChunk:
     score: float | None
 
 
-class WeaviateStore:
-    """Stores chunk vectors in Weaviate and searches them."""
+NOT_MULTI_TENANT_MESSAGE = (
+    "The Weaviate collection {name} exists but is not multi-tenant, so it cannot keep the pages of several "
+    "environments apart. Delete the collection in the Weaviate console and start the app again: it is created "
+    "again with multi-tenancy, and the pages in it are only temporary copies. See the README."
+)
 
-    def __init__(self, url: str, api_key: str, collection_name: str, init_timeout: int = 30) -> None:
+
+class WeaviateStore:
+    """Stores chunk vectors in Weaviate and searches them.
+
+    Everything is kept in one multi-tenant collection with one tenant for each environment (for example
+    ``production``, ``staging`` and ``local``). Weaviate keeps the tenants apart, so one environment never sees or
+    deletes the pages of another, even though a free Weaviate Cloud plan allows only one collection.
+    """
+
+    def __init__(
+        self, url: str, api_key: str, collection_name: str, init_timeout: int = 30, tenant: str = "local"
+    ) -> None:
         # The client allows only 2 seconds for its startup checks, which a slow connection can miss.
         self._client = weaviate.connect_to_weaviate_cloud(
             cluster_url=url,
             auth_credentials=Auth.api_key(api_key),
             additional_config=AdditionalConfig(timeout=Timeout(init=init_timeout)),
         )
-        self._collection = self._get_or_create_collection(collection_name)
+        try:
+            self._collection = self._open_tenant(collection_name, tenant)
+        except Exception:
+            self._client.close()  # a failed start must not leave the connection open
+            raise
+
+    def _open_tenant(self, name: str, tenant: str) -> Collection[Any, Any]:
+        """Open the collection for one tenant, creating the collection and the tenant if they are missing."""
+        collection = self._get_or_create_collection(name)
+        if not collection.config.get().multi_tenancy_config.enabled:
+            raise RuntimeError(NOT_MULTI_TENANT_MESSAGE.format(name=name))
+        if not collection.tenants.exists(tenant):
+            try:
+                collection.tenants.create(tenant)
+            except UnexpectedStatusCodeError:
+                if not collection.tenants.exists(tenant):  # the same tenant may have been created a moment ago
+                    raise
+        return collection.with_tenant(tenant)
 
     def _get_or_create_collection(self, name: str) -> Collection[Any, Any]:
         if self._client.collections.exists(name):
             return self._client.collections.use(name)
-        return self._client.collections.create(
-            name,
-            properties=[
-                # FIELD tokenization keeps the whole URL as one token so filters match it exactly.
-                Property(name="url", data_type=DataType.TEXT, tokenization=Tokenization.FIELD),
-                Property(name="title", data_type=DataType.TEXT, index_searchable=False),
-                Property(name="heading", data_type=DataType.TEXT),
-                Property(name="chunk_index", data_type=DataType.INT),
-                Property(name="text", data_type=DataType.TEXT),
-            ],
-            # Vectors are computed by the application (Cohere), not by Weaviate.
-            vector_config=Configure.Vectors.self_provided(),
-        )
+        try:
+            return self._client.collections.create(
+                name,
+                properties=[
+                    # FIELD tokenization keeps the whole URL as one token so filters match it exactly.
+                    Property(name="url", data_type=DataType.TEXT, tokenization=Tokenization.FIELD),
+                    Property(name="title", data_type=DataType.TEXT, index_searchable=False),
+                    Property(name="heading", data_type=DataType.TEXT),
+                    Property(name="chunk_index", data_type=DataType.INT),
+                    Property(name="text", data_type=DataType.TEXT),
+                ],
+                # Vectors are computed by the application (Cohere), not by Weaviate.
+                vector_config=Configure.Vectors.self_provided(),
+                multi_tenancy_config=Configure.multi_tenancy(enabled=True),
+            )
+        except UnexpectedStatusCodeError:
+            # Another service may have created the collection while this one was starting.
+            if self._client.collections.exists(name):
+                return self._client.collections.use(name)
+            raise
 
     def replace_source(self, url: str, title: str, chunks: Sequence[StoredChunk]) -> None:
         """Remove any chunks previously stored for this URL and insert the new ones."""
