@@ -52,7 +52,7 @@ flowchart TB
 | Step | Module | Implementation |
 |---|---|---|
 | Website | `app/extraction.py` | `httpx` download with size limit, HTML-only, and blocking of private/local addresses |
-| Content extraction | `app/extraction.py` | `trafilatura` keeps the main content as Markdown and drops navigation, ads and footers |
+| Content extraction | `app/extraction.py` | `trafilatura` keeps the main content as Markdown and drops navigation, ads and footers; phone numbers, WhatsApp numbers and email addresses (from `tel:`, `mailto:` and WhatsApp links, and from the visible text of footers) are kept in a short "Contact details" section, so visitors can ask for them |
 | Cleaning | `app/cleaning.py` | Unicode and whitespace normalization, footnote markup removal, duplicate paragraph removal |
 | Chunking | `app/chunking.py` | Recursive paragraph → sentence → word splitting (about 2000 characters, 300 overlap); headings stay with their section |
 | Embeddings | `app/embeddings.py` | Cohere `embed-v5.0-pro`; each chunk is embedded with its page title and section heading as a prefix (`search_document` for chunks, `search_query` for questions) |
