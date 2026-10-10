@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     weaviate_url: str
     weaviate_api_key: str
     weaviate_collection: str = "WebsiteChunk"
+    # The tenant of the collection that holds this environment's pages. A free Weaviate Cloud plan allows one
+    # collection and three tenants, so each environment (production, staging, a developer's computer) has its own.
+    # A tenant name has 4 to 64 letters, digits, underscores or hyphens.
+    weaviate_tenant: str = Field(default="local", pattern=r"^[A-Za-z0-9_-]{4,64}$")
     weaviate_init_timeout_seconds: int = Field(default=30, gt=0)
 
     # LLM (Groq)

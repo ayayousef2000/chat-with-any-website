@@ -1,10 +1,15 @@
 # Render Blueprint: describes the two web services of this repository so that they can be created from it.
-# Secrets are not stored here: Render asks for them when a service is first created (sync: false).
+# Secrets are not stored here: Render asks for them only when a Blueprint is first created, so the secrets of a
+# service added later must be entered in its Environment tab (sync: false).
 #
 #   staging     deploys the develop branch on every merge, to try changes before a release
 #   production  deploys the main branch, which only changes when a release is merged
 #
 # The Blueprint is linked to the main branch, so a change to this file takes effect after a release.
+#
+# Both services use the same Weaviate collection, each with its own tenant. A free Weaviate Cloud plan allows one
+# collection and three tenants, and Weaviate keeps the tenants apart: an app deletes the pages it finds in its own
+# tenant when nobody has asked about them for a while, which must never reach the pages of another service.
 services:
   - type: web
     name: chat-with-any-website
@@ -19,6 +24,10 @@ services:
     # Answers at once and calls no outside service (see app/main.py).
     healthCheckPath: /health
     envVars:
+      - key: WEAVIATE_COLLECTION
+        value: WebsiteChunk
+      - key: WEAVIATE_TENANT
+        value: production
       - key: COHERE_API_KEY
         sync: false
       - key: WEAVIATE_URL
@@ -42,19 +51,16 @@ services:
     autoDeployTrigger: commit
     healthCheckPath: /health
     envVars:
-      # A separate collection keeps staging away from the pages of production. Both can use the same Weaviate
-      # cluster, but the app deletes the pages it finds in its collection when nobody has asked about them for a
-      # while, so two services must never share one collection.
       - key: WEAVIATE_COLLECTION
-        value: WebsiteChunkStaging
+        value: WebsiteChunk
+      - key: WEAVIATE_TENANT
+        value: staging
       - key: COHERE_API_KEY
         sync: false
       - key: WEAVIATE_URL
         sync: false
       - key: WEAVIATE_API_KEY
         sync: false
-      # Staging uses the Groq quota too. Give it its own key if you can, so that testing never uses up the keys
-      # of production.
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_BACKUP_API_KEYS
