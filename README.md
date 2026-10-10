@@ -101,7 +101,9 @@ What to know about the free plan (from [Render's documentation](https://render.c
 - Render checks `/health` within a 5-second window; the endpoint answers at once and calls no outside service.
 - Render sets the `PORT` variable, and the image listens on it.
 
-The [limits per visitor](#limits-per-visitor) tell visitors apart by network address. On Render the app sees Render's proxy as the caller unless uvicorn is told which proxy addresses to trust, so by default all visitors are counted together.
+The [limits per visitor](#limits-per-visitor) tell visitors apart by network address, and behind Render that needs one setting. The app's connection comes from a proxy inside the container, and the forwarded header ends with a Cloudflare address and one of Render's internal addresses. So `render.yaml` sets `FORWARDED_ALLOW_IPS` to the addresses to trust: the local proxy, Render's internal range and [Cloudflare's published ranges](https://www.cloudflare.com/ips/). Uvicorn reads the header from the right, skips those and takes the first other address, which is the visitor. Whatever a caller writes into the header sits to the left of the visitor, so it cannot change the result.
+
+This was checked on the running staging service with real and forged headers, and a test runs the same list through uvicorn's own code. Cloudflare rarely changes its ranges. If a visitor ever arrives through a range that is not in the list, they share one limit with the others on that range until the list is updated. To see what the app sees on a service, set `DEBUG_CLIENT_ADDRESS=true` on it for a while and read the `X-Debug-Client-Id`, `X-Debug-Peer` and `X-Debug-Forwarded-For` headers of `/health`; switch it off afterwards.
 
 ## Weaviate: one collection, one tenant per environment
 
@@ -220,7 +222,7 @@ To keep one visitor from using up the free plans, the API limits each visitor (t
 
 - A visitor over a limit gets a message that says how long to wait ("You're asking questions too quickly. Please try again in about 20 seconds.") and a `Retry-After` header, and the request is not passed on to any service.
 - The counts are kept in memory, so they restart with the server and are not shared between several server processes.
-- Behind a proxy, start uvicorn with `--proxy-headers` and `--forwarded-allow-ips` set to the proxy's address, so that each visitor's own address is used; otherwise every visitor looks like the proxy. The `X-Forwarded-For` header itself is never read by the app, because anyone can send one.
+- Behind a proxy, start uvicorn with `--proxy-headers` and `--forwarded-allow-ips` set to the proxy's address, so that each visitor's own address is used; otherwise every visitor looks like the proxy. The `X-Forwarded-For` header itself is never read by the app, because anyone can send one: uvicorn reads it, and only when it comes from an address you listed as a proxy.
 
 ## How long pages are kept
 
