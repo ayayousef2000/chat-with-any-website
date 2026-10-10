@@ -84,17 +84,24 @@ docker run --rm -p 8000:8000 --env-file .env -v chat-data:/app/data chat-with-an
 
 ## Deploy on Render
 
-[`render.yaml`](render.yaml) describes the web service for [Render](https://render.com): it builds the `Dockerfile`, runs on the free plan in Frankfurt (close to a Weaviate Cloud cluster in `eu-central-1`), deploys only the `main` branch, and uses `/health` as its health check. The file holds no secrets.
+[`render.yaml`](render.yaml) describes two web services for [Render](https://render.com). Both build the `Dockerfile`, run on the free plan in Frankfurt (close to a Weaviate Cloud cluster in `eu-central-1`), and use `/health` as their health check. The file holds no secrets.
 
-1. In the Render dashboard choose **New**, then **Blueprint**, and select this repository.
-2. Render reads `render.yaml` and asks for the secrets: `COHERE_API_KEY`, `WEAVIATE_URL`, `WEAVIATE_API_KEY`, `GROQ_API_KEY` and, if you have more than one Groq key, `GROQ_BACKUP_API_KEYS` (separated by commas). Any other setting from [`.env.example`](.env.example) can be added as an environment variable.
+| Service | Branch | Deploys when | Weaviate collection |
+|---|---|---|---|
+| `chat-with-any-website` (production) | `main` | a release is merged into `main` | `WebsiteChunk` (the default) |
+| `chat-with-any-website-staging` | `develop` | any pull request is merged into `develop` | `WebsiteChunkStaging` |
+
+The two services must use different collections: an app deletes the pages it finds in its collection when nobody has asked about them for a while, so two services sharing one collection would delete each other's pages. They can use the same Weaviate cluster.
+
+1. In the Render dashboard choose **New**, then **Blueprint**, select this repository and the `main` branch. The Blueprint is linked to `main`, so a change to `render.yaml` takes effect after a release.
+2. Render asks for the secrets of each service: `COHERE_API_KEY`, `WEAVIATE_URL`, `WEAVIATE_API_KEY`, `GROQ_API_KEY` and, if you have more than one Groq key, `GROQ_BACKUP_API_KEYS` (separated by commas). Any other setting from [`.env.example`](.env.example) can be added as an environment variable.
 3. Wait for the build. When `/health` answers, Render makes the service live.
 
 What to know about the free plan (from [Render's documentation](https://render.com/docs/free)):
 
 - A free web service **spins down after 15 minutes without traffic** and takes about a minute to start again, so the first visitor after a quiet period waits.
 - Free services **cannot have a persistent disk**, so the usage records of stored pages (`data/state.db`) are lost when the service restarts. Stored pages are found again in Weaviate on the next start.
-- Each workspace gets **750 free instance hours** a month.
+- Each workspace gets **750 free instance hours** a month, shared by all its free services. A service that is asleep does not use hours, but two services that are both awake all month would use more than the 750.
 - In a test with the largest page tried (112,000 characters), the app used at most 187 MB of memory.
 - Render checks `/health` within a 5-second window; the endpoint answers at once and calls no outside service.
 - Render sets the `PORT` variable, and the image listens on it.
