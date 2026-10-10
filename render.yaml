@@ -1,5 +1,10 @@
-# Render Blueprint: describes the web service so that it can be created from this repository in one step.
-# Secrets are not stored here: Render asks for them when the Blueprint is first applied (sync: false).
+# Render Blueprint: describes the two web services of this repository so that they can be created from it.
+# Secrets are not stored here: Render asks for them when a service is first created (sync: false).
+#
+#   staging     deploys the develop branch on every merge, to try changes before a release
+#   production  deploys the main branch, which only changes when a release is merged
+#
+# The Blueprint is linked to the main branch, so a change to this file takes effect after a release.
 services:
   - type: web
     name: chat-with-any-website
@@ -23,5 +28,34 @@ services:
       - key: GROQ_API_KEY
         sync: false
       # Optional: more Groq keys, separated by commas. Leave empty to use only GROQ_API_KEY.
+      - key: GROQ_BACKUP_API_KEYS
+        sync: false
+
+  - type: web
+    name: chat-with-any-website-staging
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: frankfurt
+    plan: free
+    # Every merge into develop is deployed here, so a change can be tried before it is released.
+    branch: develop
+    autoDeployTrigger: commit
+    healthCheckPath: /health
+    envVars:
+      # A separate collection keeps staging away from the pages of production. Both can use the same Weaviate
+      # cluster, but the app deletes the pages it finds in its collection when nobody has asked about them for a
+      # while, so two services must never share one collection.
+      - key: WEAVIATE_COLLECTION
+        value: WebsiteChunkStaging
+      - key: COHERE_API_KEY
+        sync: false
+      - key: WEAVIATE_URL
+        sync: false
+      - key: WEAVIATE_API_KEY
+        sync: false
+      # Staging uses the Groq quota too. Give it its own key if you can, so that testing never uses up the keys
+      # of production.
+      - key: GROQ_API_KEY
+        sync: false
       - key: GROQ_BACKUP_API_KEYS
         sync: false
