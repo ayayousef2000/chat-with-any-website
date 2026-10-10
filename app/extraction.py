@@ -3,10 +3,12 @@
 import asyncio
 import ipaddress
 import logging
+import re
 import socket
 import time
-from dataclasses import dataclass
-from urllib.parse import urlsplit, urlunsplit
+from dataclasses import dataclass, replace
+from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
 
 import httpx
 import trafilatura
@@ -49,6 +51,20 @@ _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 # Addresses in this range stand for IPv4 addresses (RFC 6052); 64:ff9b::a00:1 reaches 10.0.0.1 through a NAT64 gateway.
 _NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
 
+# Contact details that the text extraction throws away: they sit in icon buttons, cards and footers, and the number
+# or address of a link is only in its ``href``. Every pattern has bounded lengths so a page cannot make it slow.
+_CONTACT_LIMIT = 10  # per kind
+_CONTACT_SCAN_CHARS = 2_000_000
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}")
+_NOT_EMAIL_ENDINGS = frozenset({"png", "jpg", "jpeg", "gif", "svg", "webp", "avif", "ico", "css", "js"})  # logo@2x.png
+_LABELLED_PHONE = re.compile(
+    r"\b(?P<label>phone|tel|telephone|call|mobile|cell|whatsapp)\b[^\d+(]{0,12}(?P<number>\+?\(?\d[\d\s().-]{5,17}\d)",
+    re.IGNORECASE,
+)
+_PHONE_CHARS = re.compile(r"[+\d\s().-]+")
+_DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}")
+_WHATSAPP_HOSTS = frozenset({"wa.me", "api.whatsapp.com", "web.whatsapp.com"})
+
 _FILE_KINDS = {"image": "an image", "video": "a video", "audio": "an audio file"}
 
 
@@ -85,6 +101,7 @@ class ExtractedPage:
     url: str
     title: str
     text: str
+    contacts: str = ""  # phone, WhatsApp and email lines; added to the text once the page is known to be readable
 
 
 def normalize_url(url: str) -> str:
@@ -235,12 +252,88 @@ def fetch_html(url: str, timeout: float, max_bytes: int) -> bytes:
         raise FetchError(UNREACHABLE_MESSAGE) from exc
 
 
+def _phone_digits(value: str) -> str | None:
+    """The digits of a phone number, or ``None`` when there are too few or too many for a real number."""
+    digits = re.sub(r"\D", "", value)
+    return digits if 7 <= len(digits) <= 15 else None
+
+
+def _link_contact(href: str, shown: str) -> tuple[str, str, str] | None:
+    """Read a ``tel:``, ``mailto:`` or WhatsApp link as ``(kind, key, text)``, or ``None`` for any other link."""
+    href = href.strip()
+    scheme = href.split(":", 1)[0].lower()
+    if scheme == "tel":
+        number = unquote(href[4:]).split(";")[0].strip()
+        digits = _phone_digits(number) if _PHONE_CHARS.fullmatch(number) else None
+        return ("Phone", digits, number) if digits else None
+    if scheme == "mailto":
+        address = unquote(href[7:]).split("?")[0].split(",")[0].strip()
+        return ("Email", address.lower(), address) if _EMAIL.fullmatch(address) else None
+    parts = urlsplit(href)
+    host = (parts.hostname or "").lower()
+    if parts.scheme in {"http", "https"} and host in _WHATSAPP_HOSTS:
+        candidate = parts.path.strip("/") if host == "wa.me" else (parse_qs(parts.query).get("phone") or [""])[0]
+    elif scheme == "whatsapp":
+        candidate = (parse_qs(parts.query).get("phone") or [""])[0]
+    else:
+        return None
+    digits = _phone_digits(candidate) if re.fullmatch(r"\+?\d+", candidate) else None
+    if not digits:
+        return None
+    # The number as the page writes it, when the link text is that number; otherwise plain digits.
+    written = _PHONE_CHARS.fullmatch(shown) and _phone_digits(shown) == digits
+    return "WhatsApp", digits, shown if written else f"+{digits}"
+
+
+def _contact_details(tree: Any) -> str:
+    """Collect phone numbers, WhatsApp numbers and email addresses from links and from the visible text.
+
+    Returns:
+        A short Markdown section, or an empty string when the page shows none of them.
+    """
+    found: dict[str, dict[str, str]] = {"Phone": {}, "WhatsApp": {}, "Email": {}}
+
+    def add(kind: str, key: str, text: str) -> None:
+        entries = found[kind]
+        if key in entries:
+            if entries[key] == f"+{key}":  # only digits so far; prefer the number as the page writes it
+                entries[key] = text
+        elif len(entries) < _CONTACT_LIMIT:
+            entries[key] = text
+
+    for anchor in tree.iter("a"):
+        contact = _link_contact(anchor.get("href") or "", " ".join(anchor.text_content().split()))
+        if contact:
+            add(*contact)
+
+    words = tree.xpath("//text()[not(ancestor::script or ancestor::style or ancestor::noscript)]")
+    visible = " ".join(word.strip() for word in words if word.strip())[:_CONTACT_SCAN_CHARS]
+    for match in _EMAIL.finditer(visible):
+        if match.group().rsplit(".", 1)[-1].lower() not in _NOT_EMAIL_ENDINGS:
+            add("Email", match.group().lower(), match.group())
+    for match in _LABELLED_PHONE.finditer(visible):
+        digits = _phone_digits(match.group("number"))
+        if digits and not _DATE.fullmatch(match.group("number").strip()):
+            add(
+                "WhatsApp" if match.group("label").lower() == "whatsapp" else "Phone",
+                digits,
+                match.group("number").strip(),
+            )
+
+    lines = [f"- {kind}: {text}" for kind, entries in found.items() for text in entries.values()]
+    return "## Contact details\n\n" + "\n".join(lines) if lines else ""
+
+
 def extract_content(html: bytes, url: str) -> ExtractedPage:
-    """Keep the main readable content (as Markdown) and drop navigation, ads and footers."""
+    """Keep the main readable content (as Markdown) and drop navigation, ads and footers.
+
+    Contact details are collected separately, because the extraction drops them from icon buttons, cards and footers.
+    """
     tree = trafilatura.load_html(html)
     if tree is None:
         raise ExtractionError(UNREADABLE_MESSAGE)
 
+    contacts = _contact_details(tree)  # before the extraction, which changes the tree
     metadata = trafilatura.extract_metadata(tree, default_url=url)
     text = trafilatura.extract(
         tree,
@@ -255,7 +348,7 @@ def extract_content(html: bytes, url: str) -> ExtractedPage:
         raise ExtractionError(NO_TEXT_MESSAGE)
 
     title = metadata.title if metadata and metadata.title else url
-    return ExtractedPage(url=url, title=title, text=text)
+    return ExtractedPage(url=url, title=title, text=text, contacts=contacts)
 
 
 def render_html(url: str, timeout: float) -> bytes:
@@ -307,7 +400,8 @@ def load_page(
         raise error or ExtractionError(NO_TEXT_MESSAGE)
     if len(page.text.strip()) < MIN_READABLE_CHARS:
         raise ExtractionError(NO_TEXT_MESSAGE)
-    return page
+    # Added only now: a page of nothing but a contact link must still count as having no readable text.
+    return replace(page, text=f"{page.text}\n\n{page.contacts}", contacts="") if page.contacts else page
 
 
 def extract_content_or_none(html: bytes, url: str) -> ExtractedPage | None:
