@@ -86,12 +86,12 @@ docker run --rm -p 8000:8000 --env-file .env -v chat-data:/app/data chat-with-an
 
 [`render.yaml`](render.yaml) describes two web services for [Render](https://render.com). Both build the `Dockerfile`, run on the free plan in Frankfurt (close to a Weaviate Cloud cluster in `eu-central-1`), and use `/health` as their health check. The file holds no secrets.
 
-| Service | Branch | Deploys when | Weaviate collection |
+| Service | Branch | Deploys when | Weaviate tenant |
 |---|---|---|---|
-| `chat-with-any-website` (production) | `main` | a release is merged into `main` | `WebsiteChunk` (the default) |
-| `chat-with-any-website-staging` | `develop` | any pull request is merged into `develop` | `WebsiteChunkStaging` |
+| `chat-with-any-website` (production) | `main` | a release is merged into `main` | `production` |
+| `chat-with-any-website-staging` | `develop` | any pull request is merged into `develop` | `staging` |
 
-The two services must use different collections: an app deletes the pages it finds in its collection when nobody has asked about them for a while, so two services sharing one collection would delete each other's pages. They can use the same Weaviate cluster.
+Both services use the same cluster and the same collection, each with its own **tenant** (see [Weaviate: one collection, one tenant per environment](#weaviate-one-collection-one-tenant-per-environment)). The two must never share a tenant: an app deletes the pages it finds in its tenant when nobody has asked about them for a while, so two services in one tenant would delete each other's pages.
 
 1. In the Render dashboard choose **New**, then **Blueprint**, select this repository and the `main` branch. The Blueprint is linked to `main`, so a change to `render.yaml` takes effect after a release.
 2. Render asks for the secrets of each service: `COHERE_API_KEY`, `WEAVIATE_URL`, `WEAVIATE_API_KEY`, `GROQ_API_KEY` and, if you have more than one Groq key, `GROQ_BACKUP_API_KEYS` (separated by commas). Any other setting from [`.env.example`](.env.example) can be added as an environment variable.
@@ -107,6 +107,12 @@ What to know about the free plan (from [Render's documentation](https://render.c
 - Render sets the `PORT` variable, and the image listens on it.
 
 The [limits per visitor](#limits-per-visitor) tell visitors apart by network address. On Render the app sees Render's proxy as the caller unless uvicorn is told which proxy addresses to trust, so by default all visitors are counted together.
+
+## Weaviate: one collection, one tenant per environment
+
+A free Weaviate Cloud plan allows **one collection and up to three tenants**. So the app keeps all its pages in one multi-tenant collection and gives every environment its own tenant, set with `WEAVIATE_TENANT`: for example `production` and `staging` on Render, and the default `local` on your own computer. Weaviate keeps tenants apart, so running the app or the evaluation on your computer cannot touch the pages of the live site. The app creates the collection and the tenant the first time it starts.
+
+If the collection already exists **without** multi-tenancy (as it did before this setting existed), the app stops at startup and says so, because multi-tenancy cannot be switched on for an existing collection. The pages in it are only temporary copies, so delete the collection once in the [Weaviate console](https://console.weaviate.cloud) (open the cluster, then **Collections**, and delete `WebsiteChunk`) and start the app again: it creates the collection again with multi-tenancy. Do this before starting a new version of a live service, because the old version stops working while the collection is missing.
 
 ## Evaluate
 
@@ -164,7 +170,8 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `COHERE_EMBED_DIMENSION` | `1024` | Embedding size |
 | `RERANK_ENABLED` | `true` | Rerank retrieved chunks with Cohere |
 | `COHERE_RERANK_MODEL` | `rerank-v4.0-fast` | Cohere rerank model |
-| `WEAVIATE_COLLECTION` | `WebsiteChunk` | Weaviate collection name |
+| `WEAVIATE_COLLECTION` | `WebsiteChunk` | Weaviate collection name (one multi-tenant collection for all environments) |
+| `WEAVIATE_TENANT` | `local` | The tenant of the collection that holds this environment's pages: 4 to 64 letters, digits, `_` or `-` |
 | `WEAVIATE_INIT_TIMEOUT_SECONDS` | `30` | Seconds to wait for Weaviate at startup (the client's own default of 2 can fail on a slow connection) |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Chat model on Groq |
 | `GROQ_BACKUP_API_KEYS` | empty | More Groq keys, separated by commas. `GROQ_API_KEY` is used until its limit is reached, then each backup key in turn, and after the last one the first again; a key whose limit was reached is skipped until it has recovered |

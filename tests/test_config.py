@@ -103,3 +103,24 @@ def test_rate_limit_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_rate_limit_values_must_be_positive(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     with pytest.raises(ValidationError):
         _settings(monkeypatch, **{name: "0"})
+
+
+# --- the Weaviate tenant -------------------------------------------------------------------------------------------
+
+
+def test_the_tenant_is_local_unless_set_so_that_a_computer_never_touches_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WEAVIATE_TENANT", raising=False)
+    assert _settings(monkeypatch).weaviate_tenant == "local"
+
+
+@pytest.mark.parametrize("name", ["production", "staging", "local", "dev_1", "team-A", "a" * 64, "abcd"])
+def test_valid_tenant_names_are_accepted(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    assert _settings(monkeypatch, WEAVIATE_TENANT=name).weaviate_tenant == name
+
+
+@pytest.mark.parametrize("name", ["", "dev", "a" * 65, "has space", "slash/name", "dot.name", "accént"])
+def test_invalid_tenant_names_stop_the_start(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    with pytest.raises(ValidationError, match="weaviate_tenant"):
+        _settings(monkeypatch, WEAVIATE_TENANT=name)
