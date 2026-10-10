@@ -321,3 +321,39 @@ def test_an_unchanged_file_costs_only_a_not_modified_answer() -> None:
 
 def test_the_interface_answers_are_not_marked_as_cacheable_pages() -> None:
     assert "cache-control" not in _client().get("/health").headers
+
+
+# --- the diagnostic headers of /health -------------------------------------------------------------------------------
+
+
+def test_health_shows_nothing_about_the_caller_unless_the_diagnosis_is_switched_on() -> None:
+    client = _client()
+    app.state.debug_client_address = False
+
+    response = client.get("/health", headers={"X-Forwarded-For": "198.51.100.9"})
+
+    assert not [name for name in response.headers if name.lower().startswith("x-debug")]
+
+
+def test_health_shows_the_peer_the_forwarded_header_and_the_address_used_when_the_diagnosis_is_on() -> None:
+    client = _client()
+    app.state.debug_client_address = True
+    try:
+        response = client.get("/health", headers={"X-Forwarded-For": "198.51.100.9, 10.1.2.3"})
+    finally:
+        app.state.debug_client_address = False
+
+    assert response.headers["x-debug-peer"] == "testclient"
+    assert response.headers["x-debug-forwarded-for"] == "198.51.100.9, 10.1.2.3"
+    assert response.headers["x-debug-client-id"] == "testclient"  # the forwarded header is never what is used
+
+
+def test_only_health_shows_the_diagnostic_headers() -> None:
+    client = _client()
+    app.state.debug_client_address = True
+    try:
+        other = client.get("/", headers={"X-Forwarded-For": "198.51.100.9"})
+    finally:
+        app.state.debug_client_address = False
+
+    assert not [name for name in other.headers if name.lower().startswith("x-debug")]

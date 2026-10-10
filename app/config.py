@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     rate_limit_asks_per_minute: int = Field(default=6, gt=0)
     rate_limit_asks_per_day: int = Field(default=60, gt=0)
     rate_limit_loads_per_hour: int = Field(default=20, gt=0)
+    # For testing a hosting setup only: /health then shows which address the app takes for the caller.
+    debug_client_address: bool = False
 
     # Lifetime of stored pages
     page_idle_minutes: float = Field(default=15, gt=0)
