@@ -211,6 +211,11 @@ def _read_body(response: httpx.Response, max_bytes: int, deadline: float) -> byt
     return bytes(body)
 
 
+def _host_of(url: str) -> str:
+    """The host of an address, for the log: the path and the query of a page can hold private things."""
+    return urlsplit(url).hostname or "an unknown host"
+
+
 def fetch_html(url: str, timeout: float, max_bytes: int) -> bytes:
     """Download a page's HTML, enforcing a size limit, an HTML content type and a total time limit.
 
@@ -242,13 +247,13 @@ def fetch_html(url: str, timeout: float, max_bytes: int) -> bytes:
             current = str(redirect)
         raise FetchError(TOO_MANY_REDIRECTS_MESSAGE)
     except httpx.HTTPStatusError as exc:
-        logger.info("%s answered with HTTP %s", url, exc.response.status_code)
+        logger.info("%s answered with HTTP %s", _host_of(url), exc.response.status_code)
         raise FetchError(_status_message(exc.response.status_code)) from exc
     except httpx.TimeoutException as exc:
         raise FetchError(TIMEOUT_MESSAGE) from exc
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         # The library's own wording is for developers; it stays out of the message shown to the user.
-        logger.warning("Could not fetch %s: %s", url, exc)
+        logger.warning("Could not fetch a page from %s: %s", _host_of(url), type(exc).__name__)
         raise FetchError(UNREACHABLE_MESSAGE) from exc
 
 

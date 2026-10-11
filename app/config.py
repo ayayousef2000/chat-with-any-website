@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables."""
 
 from functools import lru_cache
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     rate_limit_loads_per_hour: int = Field(default=20, gt=0)
     # For testing a hosting setup only: /health then shows which address the app takes for the caller.
     debug_client_address: bool = False
+
+    # Logs: readable text on a developer's computer, one JSON object per line where logs are collected
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_format: Literal["text", "json"] = "text"
 
     # Lifetime of stored pages
     page_idle_minutes: float = Field(default=15, gt=0)

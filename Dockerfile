@@ -58,4 +58,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
 # Settings come from environment variables (see .env.example); no .env file is copied into the image.
 # Behind a proxy, set FORWARDED_ALLOW_IPS to the proxy's address so that each visitor's own address is used for the
 # limits per visitor; uvicorn reads that variable.
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# The application writes its own request line (with a request id and the time taken), so the server's is switched off.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
