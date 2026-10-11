@@ -36,7 +36,9 @@ Reply with a JSON object: {"faithful": true|false, "correct": true|false, "reaso
 
 - faithful: every factual claim in the answer is supported by the excerpts. An answer that only says the page
   does not cover the question is faithful.
-- correct: if the question is answerable, the answer agrees with the reference answer in substance.
+- correct: if the question is answerable, the answer agrees with the reference answer in substance. The
+  reference answer is the truth: an answer that says the page does not cover the question is NOT correct for an
+  answerable question, even when the excerpts really lack the information (that is a failure of the search).
   If the question is NOT answerable from the page, the answer must clearly say the page does not cover it
   and must not invent an answer."""
 
