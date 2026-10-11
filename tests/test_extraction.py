@@ -204,7 +204,7 @@ def _stub(monkeypatch: pytest.MonkeyPatch, static_len: int | None, rendered_len:
         browser_calls.append(url)
         return b"rendered"
 
-    monkeypatch.setattr(extraction, "fetch_html", lambda *args: b"static")
+    monkeypatch.setattr(extraction, "fetch_document", lambda *args, **kwargs: ("html", b"static"))
     monkeypatch.setattr(extraction, "extract_content", fake_extract)
     monkeypatch.setattr(extraction, "render_html", fake_render)
     return browser_calls
@@ -271,6 +271,6 @@ def test_fetch_errors_do_not_trigger_browser(monkeypatch: pytest.MonkeyPatch) ->
     def failing_fetch(*args: Any) -> bytes:
         raise FetchError("HTTP 500")
 
-    monkeypatch.setattr(extraction, "fetch_html", failing_fetch)
+    monkeypatch.setattr(extraction, "fetch_document", failing_fetch)
     with pytest.raises(FetchError):
         load_page("u", 1, 1, True, 500)

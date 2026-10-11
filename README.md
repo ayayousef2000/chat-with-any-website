@@ -185,6 +185,9 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `HYBRID_ALPHA` | `0.65` | Blend of vector and keyword search (1 = vector only, 0 = keyword only) |
 | `FETCH_TIMEOUT_SECONDS` | `20` | Seconds to wait for a page to download |
 | `FETCH_MAX_BYTES` | `5000000` | The largest page to download, in bytes (5 MB); a larger page is refused |
+| `PDF_MAX_BYTES` | `10000000` | The largest PDF to download, in bytes (10 MB); `0` turns PDF support off |
+| `PDF_MAX_PAGES` | `100` | How many pages of a PDF are read; the text says when a document is longer |
+| `PDF_MAX_SECONDS` | `30` | How long reading a PDF may take before it stops, which matters on a slow host |
 | `BROWSER_FALLBACK` | `false` | Retry thin pages in a headless browser |
 | `MIN_TEXT_CHARS` | `500` | Text length below which the browser fallback is tried |
 | `RETRY_ATTEMPTS` | `4` | Most tries per call to Cohere or Groq, including the first |

@@ -6,12 +6,16 @@ import logging
 import re
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from io import BytesIO
+from itertools import islice
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
 
 import httpx
 import trafilatura
+from pypdf import PdfReader
 
 from app.errors import ExtractionError, FetchError, InvalidURLError
 
@@ -35,6 +39,21 @@ TOO_MANY_REDIRECTS_MESSAGE = "That address sends you around in circles. Try the 
 UNREADABLE_MESSAGE = "We couldn't read this page. Try a different one."
 BROWSER_FAILED_MESSAGE = "We couldn't load this page. Try again in a moment."
 BROWSER_UNAVAILABLE_MESSAGE = "This page needs a feature that isn't available right now. Try a different page."
+
+PDF_NO_TEXT_MESSAGE = (
+    "This PDF has no text that can be selected. It may be a scan or a set of images, which can't be read yet. "
+    "Try a different document."
+)
+PDF_PROTECTED_MESSAGE = "This PDF is protected with a password, so it can't be read. Try a different document."
+PDF_UNREADABLE_MESSAGE = "We couldn't read this PDF. The file may be damaged. Try a different document."
+
+_PDF_TYPES = frozenset({"application/pdf", "application/x-pdf"})
+
+# A PDF without a title of its own gets the biggest text of its first page, when it is this much bigger than the body
+# text and reads like a title: words, and between these lengths.
+TITLE_SIZE_FACTOR = 1.15
+MIN_TITLE_CHARS = 8
+MAX_TITLE_CHARS = 200
 
 # A page with less text than this has nothing to answer from. It is typically an empty shell that fills in its
 # content with JavaScript: such pages measure a few dozen characters, while the smallest real pages (like
@@ -196,19 +215,31 @@ def _redirect_target(response: httpx.Response, current: httpx.URL) -> httpx.URL 
     return target.copy_with(fragment=None)
 
 
-def _read_body(response: httpx.Response, max_bytes: int, deadline: float) -> bytes:
-    """Read an HTML response within the size limit and the deadline."""
+def _read_body(response: httpx.Response, max_bytes: int, pdf_max_bytes: int, deadline: float) -> tuple[str, bytes]:
+    """Read an HTML or PDF response within its size limit and the deadline.
+
+    Returns:
+        ``("html", body)`` or ``("pdf", body)``. A PDF is only accepted when ``pdf_max_bytes`` is above zero.
+    """
     response.raise_for_status()
     content_type = response.headers.get("content-type", "")
-    if "html" not in content_type:
+    mime = content_type.split(";")[0].strip().lower()
+    if "html" in mime:
+        kind, limit = "html", max_bytes
+    elif mime in _PDF_TYPES and pdf_max_bytes > 0:
+        kind, limit = "pdf", pdf_max_bytes
+    else:
         raise ExtractionError(_content_type_message(content_type))
+    declared = response.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise FetchError(TOO_LARGE_MESSAGE)  # no need to download what is too large
     body = bytearray()
     for part in response.iter_bytes():
         body.extend(part)
-        if len(body) > max_bytes:
+        if len(body) > limit:
             raise FetchError(TOO_LARGE_MESSAGE)
         _check_deadline(deadline)  # a site that sends a few bytes at a time cannot keep the request open
-    return bytes(body)
+    return kind, bytes(body)
 
 
 def _host_of(url: str) -> str:
@@ -217,10 +248,20 @@ def _host_of(url: str) -> str:
 
 
 def fetch_html(url: str, timeout: float, max_bytes: int) -> bytes:
-    """Download a page's HTML, enforcing a size limit, an HTML content type and a total time limit.
+    """Download a page's HTML, enforcing a size limit, an HTML content type and a total time limit."""
+    return fetch_document(url, timeout, max_bytes)[1]
 
-    Every address, including each redirect, is looked up once, checked and then connected to as checked.
+
+def fetch_document(url: str, timeout: float, max_bytes: int, pdf_max_bytes: int = 0) -> tuple[str, bytes]:
+    """Download a page or, when ``pdf_max_bytes`` is above zero, a PDF file.
+
+    Every address, including each redirect, is looked up once, checked and then connected to as checked. The size
+    limits and a total time limit apply to the bytes that arrive, whatever the server says.
+
+    Returns:
+        ``("html", body)`` or ``("pdf", body)``.
     """
+    accept = "text/html,application/xhtml+xml" + (",application/pdf;q=0.9" if pdf_max_bytes > 0 else "")
     deadline = time.monotonic() + timeout * TOTAL_TIME_FACTOR
     current = url
     try:
@@ -234,14 +275,14 @@ def fetch_html(url: str, timeout: float, max_bytes: int) -> bytes:
             # settings are ignored because a proxy would do the connecting.
             with httpx.Client(
                 timeout=timeout,
-                headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"},
+                headers={"User-Agent": USER_AGENT, "Accept": accept},
                 trust_env=False,
             ) as client:
                 response = _send_pinned(client, target, addresses, deadline)
                 try:
                     redirect = _redirect_target(response, target)
                     if redirect is None:
-                        return _read_body(response, max_bytes, deadline)
+                        return _read_body(response, max_bytes, pdf_max_bytes, deadline)
                 finally:
                     response.close()
             current = str(redirect)
@@ -356,6 +397,119 @@ def extract_content(html: bytes, url: str) -> ExtractedPage:
     return ExtractedPage(url=url, title=title, text=text, contacts=contacts)
 
 
+def _reflow(text: str) -> str:
+    """Join the lines of a PDF page into paragraphs.
+
+    A PDF stores text line by line as it is drawn, so a sentence is cut at the end of every line. Lines are joined
+    with a space, a word that was split with a hyphen at the end of a line is joined without one, and a blank line
+    stays a paragraph break.
+    """
+    paragraphs: list[str] = []
+    current = ""
+    for raw in text.replace("\r", "").split("\n"):
+        line = raw.strip()
+        if not line:
+            if current:
+                paragraphs.append(current)
+                current = ""
+        elif current.endswith("-") and line[:1].islower() and current[-2:-1].isalpha():
+            current = current[:-1] + line
+        else:
+            current = f"{current} {line}" if current else line
+    if current:
+        paragraphs.append(current)
+    return "\n\n".join(paragraphs)
+
+
+def extract_pdf(data: bytes, url: str, max_pages: int, max_seconds: float = 30.0) -> ExtractedPage:
+    """Read the text of a PDF file, a page at a time, each page under its own ``## Page N`` heading.
+
+    The headings let an answer cite a page ("section: Page 12"). Only the first ``max_pages`` pages are read, and
+    reading stops after ``max_seconds`` on a slow host. The text says how many pages were read when the document is
+    longer, so an answer about a later page is not mistaken for a gap in the page.
+
+    Raises:
+        ExtractionError: If the file is not a readable PDF, is protected by a password or has no selectable text.
+    """
+    if not data[:1024].lstrip().startswith(b"%PDF-"):
+        raise ExtractionError(PDF_UNREADABLE_MESSAGE)
+    try:
+        reader = PdfReader(BytesIO(data), strict=False)
+        if reader.is_encrypted and not reader.decrypt(""):
+            raise ExtractionError(PDF_PROTECTED_MESSAGE)
+        total = len(reader.pages)
+        started = time.monotonic()
+        read = 0
+        sections = []
+        first_page: list[tuple[float, str]] = []  # the text of page one with its font sizes, to find a title
+        for number, page in enumerate(islice(reader.pages, max_pages), start=1):
+            if time.monotonic() - started > max_seconds:
+                break
+            if number == 1:
+                text = _reflow(page.extract_text(visitor_text=_collect_sizes(first_page)) or "")
+            else:
+                text = _reflow(page.extract_text() or "")
+            read = number
+            if text:
+                sections.append(f"## Page {number}\n\n{text}")
+        title = _pdf_title(reader, url, first_page)
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        logger.warning("Could not read a PDF from %s: %s", _host_of(url), type(exc).__name__)
+        raise ExtractionError(PDF_UNREADABLE_MESSAGE) from exc
+    if not sections:
+        raise ExtractionError(PDF_NO_TEXT_MESSAGE)
+    if read < total:
+        sections.append(f"## Note\n\nOnly the first {read} of the {total} pages of this document were read.")
+    return ExtractedPage(url=url, title=title, text="\n\n".join(sections))
+
+
+def _collect_sizes(into: list[tuple[float, str]]) -> Callable[..., None]:
+    """A reader of text pieces for pypdf that records every piece of a page with its font size."""
+
+    def visit(text: str, cm: Any, tm: Any, font_dict: Any, font_size: Any) -> None:
+        if text.strip():
+            into.append((round(float(font_size or 0), 1), text.strip()))
+
+    return visit
+
+
+def _title_from_text(pieces: list[tuple[float, str]]) -> str:
+    """The title of a paper or report: the biggest text on the first page that reads like words.
+
+    The body is the font size with most text. A title is bigger than the body, so sizes are tried from the biggest
+    down, and a size is skipped when its text is not made of words, such as a stamp of numbers and brackets
+    (``arXiv:1706.03762v7 [cs.CL] 2 Aug 2023``), which an archive prints bigger than the title itself.
+    """
+    if not pieces:
+        return ""
+    characters: dict[float, int] = {}
+    for size, text in pieces:
+        characters[size] = characters.get(size, 0) + len(text)
+    body = max(characters, key=lambda size: characters[size])
+    for size in sorted((size for size in characters if size > body * TITLE_SIZE_FACTOR), reverse=True):
+        candidate = " ".join(" ".join(text for piece_size, text in pieces if piece_size == size).split())
+        letters = sum(character.isalpha() for character in candidate)
+        words = len(candidate.split())
+        if MIN_TITLE_CHARS <= len(candidate) <= MAX_TITLE_CHARS and words >= 2 and letters >= len(candidate) * 0.75:
+            return candidate
+    return ""
+
+
+def _pdf_title(reader: PdfReader, url: str, first_page: list[tuple[float, str]]) -> str:
+    """The title written into the PDF, else the biggest text of its first page, else the name of the file."""
+    title = (reader.metadata.title if reader.metadata else None) or ""
+    title = " ".join(str(title).split())
+    if title:
+        return title
+    title = _title_from_text(first_page)
+    if title:
+        return title
+    name = unquote(urlsplit(url).path.rsplit("/", 1)[-1])
+    return name or url
+
+
 def render_html(url: str, timeout: float) -> bytes:
     """Load a page in a headless browser so JavaScript-generated content is included (needs the "browser" extra)."""
     try:
@@ -387,12 +541,24 @@ def load_page(
     max_bytes: int,
     browser_fallback: bool,
     min_text_chars: int,
+    *,
+    pdf_max_bytes: int = 0,
+    pdf_max_pages: int = 100,
+    pdf_max_seconds: float = 30.0,
 ) -> ExtractedPage:
-    """Fetch and extract a page, retrying in a headless browser when the static HTML has too little text."""
+    """Fetch and extract a page, retrying in a headless browser when the static HTML has too little text.
+
+    A link to a PDF file is read as a document when ``pdf_max_bytes`` is above zero.
+    """
     page: ExtractedPage | None = None
     error: ExtractionError | None = None
     try:
-        page = extract_content(fetch_html(url, timeout, max_bytes), url)
+        kind, body = fetch_document(url, timeout, max_bytes, pdf_max_bytes)
+        if kind == "pdf":
+            return extract_pdf(
+                body, url, pdf_max_pages, pdf_max_seconds
+            )  # a document has no JavaScript to run, and no contacts
+        page = extract_content(body, url)
     except ExtractionError as exc:
         error = exc
 
