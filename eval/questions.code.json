@@ -1,0 +1,82 @@
+[
+  {
+    "url": "https://docs.python.org/3/library/json.html",
+    "questions": [
+      {
+        "question": "Show me an example of sort_keys",
+        "reference": "json.dumps({\"c\": 0, \"b\": 0, \"a\": 0}, sort_keys=True) gives {\"a\": 0, \"b\": 0, \"c\": 0}.",
+        "must_contain": ["sort_keys=True"]
+      },
+      {
+        "question": "Show me an example of pretty printing with sorted keys.",
+        "reference": "print(json.dumps({'6': 7, '4': 5}, sort_keys=True, indent=4)) prints the object over several lines with indentation and the keys sorted.",
+        "must_contain": ["sort_keys=True, indent=4"]
+      },
+      {
+        "question": "Give me an example of compact encoding.",
+        "reference": "json.dumps([1, 2, 3, {'4': 5, '6': 7}], separators=(',', ':')) gives '[1,2,3,{\"4\":5,\"6\":7}]'.",
+        "must_contain": ["separators=(',', ':')"]
+      },
+      {
+        "question": "Show me an example of decoding JSON with a custom object_hook.",
+        "reference": "Define a function such as as_complex(dct) that returns complex(dct['real'], dct['imag']) for objects with '__complex__', and call json.loads(text, object_hook=as_complex).",
+        "must_contain": ["object_hook=as_complex"]
+      },
+      {
+        "question": "Show me how to use the json module from the command line.",
+        "reference": "Pipe JSON into python -m json, for example echo '{\"json\":\"obj\"}' | python -m json, which pretty-prints it.",
+        "must_contain": ["python -m json"]
+      },
+      {
+        "question": "Show me an example of what happens with duplicate keys when loading JSON.",
+        "reference": "json.loads('{\"x\": 1, \"x\": 2, \"x\": 3}') returns {'x': 3}: the last value is used.",
+        "must_contain": ["weird_json"]
+      }
+    ]
+  },
+  {
+    "url": "https://docs.python.org/3/tutorial/venv.html",
+    "questions": [
+      {
+        "question": "Show the command to upgrade a package.",
+        "reference": "python -m pip install --upgrade requests",
+        "must_contain": ["--upgrade requests"]
+      },
+      {
+        "question": "Show an example of saving the installed packages to a file.",
+        "reference": "python -m pip freeze > requirements.txt writes the installed packages to requirements.txt.",
+        "must_contain": ["pip freeze > requirements.txt"]
+      },
+      {
+        "question": "Show the command to install all the packages listed in a requirements file.",
+        "reference": "python -m pip install -r requirements.txt",
+        "must_contain": ["-r requirements.txt"]
+      },
+      {
+        "question": "Show an example of installing a specific version of a package.",
+        "reference": "python -m pip install requests==2.6.0",
+        "must_contain": ["requests==2.6.0"]
+      }
+    ]
+  },
+  {
+    "url": "https://peps.python.org/pep-0008/",
+    "questions": [
+      {
+        "question": "Show an example of breaking a long expression before binary operators.",
+        "reference": "The correct example puts each operator at the start of the line: income = (gross_wages + taxable_interest + (dividends - qualified_dividends) - ira_deduction ...) with the operators lined up with their operands.",
+        "must_contain": ["taxable_interest"]
+      },
+      {
+        "question": "Show an example of a with statement that is spread over two lines.",
+        "reference": "with open('/path/to/some/file/you/want/to/read') as file_1, \\ open('/path/to/some/file/being/written', 'w') as file_2: file_2.write(file_1.read())",
+        "must_contain": ["file_1"]
+      },
+      {
+        "question": "Show the right and the wrong way to write a tuple with one element.",
+        "reference": "Correct: FILES = ('setup.cfg',). Wrong: FILES = 'setup.cfg',",
+        "must_contain": ["FILES = ('setup.cfg',)"]
+      }
+    ]
+  }
+]
