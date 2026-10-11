@@ -12,6 +12,7 @@ Paste the address of a web page, then ask questions about it. Answers come only 
 
 - **Grounded answers.** The model sees only excerpts of the page. When the page does not cover a question, it says so instead of guessing.
 - **Citations you can check.** Each cited source shows the matching line or sentences with the matching words highlighted, and the full section is one click away.
+- **Follow-up questions.** Ask "When did he die?" after "Who was he?": the last three questions and answers are used to understand a follow-up before the page is searched.
 - **Any language.** The answer is written in the language of the question. Tested on English and Arabic pages.
 - **Kind to free plans.** Rate limits and short outages of the services are waited out, several Groq keys are used in turn, and each visitor has limits.
 - **Light and dark themes.** The page follows the setting of your device, and a switch in the header lets you choose System, Light or Dark.
@@ -121,7 +122,8 @@ uv run python eval/run_eval.py eval/questions.json --out eval/results.json
 
 - `eval/questions.json`: 30 questions on 6 pages (English and Arabic), 4 answerable questions and 1 the page does not cover for each page.
 - `eval/questions.hard.json`: 24 questions on 5 pages, with details deep in long pages, answers that combine two sections, and 5 near-miss questions the page does not cover.
-- `--pause` (default 10 seconds) waits between questions, which keeps the run under the per-minute limits of the free plans; `--no-ingest` skips loading pages that are already stored.
+- `eval/questions.followups.json`: 20 follow-up questions on 3 pages ("And 2.0?", "Which one gives me a string?"), each with the earlier turn or turns of its conversation, and 2 near-miss questions the page does not cover.
+- `--pause` (default 10 seconds) waits between questions, which keeps the run under the per-minute limits of the free plans; `--no-ingest` skips loading pages that are already stored; `--no-history` asks the follow-up questions without their earlier turns, which shows what the conversation adds.
 
 Results with the default settings:
 
@@ -129,6 +131,8 @@ Results with the default settings:
 |---|---|---|---|
 | `questions.json` (30) | 23 of 24 | 30 of 30 | 30 of 30 |
 | `questions.hard.json` (24) | 19 of 19 | 24 of 24 | 24 of 24 |
+| `questions.followups.json` (20) | 18 of 18 | 20 of 20 | 20 of 20 |
+| `questions.followups.json` (20), without the earlier turns | 18 of 18 | 17 of 20 | 17 of 20 |
 
 On the harder set, switching reranking off, using vector search only, and keeping 3 or 5 excerpts all scored the same. Run the script before and after changing the chunk size, `HYBRID_ALPHA`, `TOP_K` or the reranker to see whether a change helps. `eval/questions.example.json` shows the file format.
 
@@ -149,10 +153,10 @@ The browser loads the page and the resources it requests, so only enable this wh
 |---|---|---|---|
 | `POST` | `/api/ingest` | `{"url": "...", "refresh": false}` | Makes a page ready: reuses a stored copy if there is one, otherwise fetches, cleans, chunks, embeds and stores it |
 | `DELETE` | `/api/page?url=...` | none | Deletes the stored copy of a page |
-| `POST` | `/api/ask` | `{"url": "...", "question": "..."}` | Answers a question about a previously loaded page |
+| `POST` | `/api/ask` | `{"url": "...", "question": "...", "history": [...]}` | Answers a question about a previously loaded page. `history` is optional: the earlier turns as `{"question": "...", "answer": "..."}` objects, oldest first; the last three are used to rewrite a follow-up so that it makes sense on its own |
 | `GET` | `/health` | none | Answers `{"status": "ok"}` at once without calling any service; for health checks |
 
-Interactive API docs are available at http://127.0.0.1:8000/docs.
+The server keeps no conversation: a client that wants follow-up questions sends the earlier turns with every request, as the page does. Interactive API docs are available at http://127.0.0.1:8000/docs.
 
 ## Configuration
 
@@ -240,13 +244,13 @@ The times of use are kept in a small SQLite file (`STATE_DB_PATH`, git-ignored) 
 
 ## Privacy
 
-The text of every page you load is sent to Cohere (embeddings and reranking) and stored in your Weaviate database, and the excerpts used to answer a question are sent to Groq. Nothing is sent anywhere else. The page itself keeps two small things in your browser: your theme choice (until you pick System again) and the page you have loaded (until you close the tab). Answers can be wrong, so check the cited sources. Stored pages are deleted automatically as described above, or at once with **Delete data**.
+The text of every page you load is sent to Cohere (embeddings and reranking) and stored in your Weaviate database, and the excerpts used to answer a question are sent to Groq. For a follow-up question, the last three questions and answers of the conversation are sent to Groq as well, to rewrite the question. Nothing is sent anywhere else. The page itself keeps two small things in your browser: your theme choice (until you pick System again) and the page you have loaded (until you close the tab). The conversation itself is held only in the memory of the open tab, is sent with each follow-up, and is never stored on the server. Answers can be wrong, so check the cited sources. Stored pages are deleted automatically as described above, or at once with **Delete data**.
 
 ## Limitations
 
 - Only the single page at the given URL is indexed; links are not crawled.
 - Pages that render their content with JavaScript may return little or no text unless the browser fallback is enabled.
-- Each question is answered independently; earlier messages are not used as context.
+- A follow-up is understood from the last three questions and answers only. They are used to rewrite the question before the page is searched; the answer is then written from the excerpts of the page, so a request about the conversation itself ("summarise what you just said") is not supported.
 
 ## Contributing
 
