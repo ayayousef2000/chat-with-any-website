@@ -1,6 +1,8 @@
 """FastAPI application exposing the ingest and ask endpoints."""
 
 import logging
+import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,11 +16,13 @@ from app.config import get_settings
 from app.conversation import Turn
 from app.errors import AppError, TooManyRequestsError
 from app.janitor import Janitor
+from app.logging_setup import configure_logging, request_id_var
 from app.pipeline import Pipeline
 from app.ratelimit import ClientLimits, client_id
 from app.upstream import RATE_LIMIT_ERRORS, UNAVAILABLE_ERRORS, public_error_details
 
 logger = logging.getLogger(__name__)
+access_logger = logging.getLogger("app.access")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -38,6 +42,7 @@ DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Create the pipeline on startup and close its connections on shutdown."""
     settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
     pipeline = Pipeline(settings)
     try:
         pipeline.reconcile()
@@ -182,6 +187,43 @@ async def add_security_headers(request: Request, call_next: Callable[[Request], 
         response.headers["X-Debug-Forwarded-For"] = request.headers.get("x-forwarded-for", "")
         response.headers["X-Debug-Client-Id"] = client_id(request)
     return response
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    """Give every request an id, put it on the response, and log one line when the request is done.
+
+    The line holds the method, the path without its query string, the status and the time taken. It never holds a
+    question, a request body or a visitor's address. The health checks of the host are not logged unless they fail.
+    """
+    request_id = uuid.uuid4().hex[:16]  # made here, never taken from the caller, so a caller cannot forge it
+    token = request_id_var.set(request_id)
+    started = time.perf_counter()
+    status = 500  # what is logged if nothing below sets it
+    try:
+        try:
+            response = await call_next(request)
+        except Exception:
+            # Handled here and not by the handler of the server, which runs after this request is over and
+            # could no longer tell which request failed.
+            logger.exception("Unhandled error while processing %s", request.url.path)
+            response = JSONResponse(status_code=500, content={"detail": "Something went wrong. Please try again."})
+        status = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        duration_ms = round((time.perf_counter() - started) * 1000)
+        quiet = request.url.path == "/health" and status == 200
+        access_logger.log(
+            logging.DEBUG if quiet else logging.INFO,
+            "%s %s %d %dms",
+            request.method,
+            request.url.path,
+            status,
+            duration_ms,
+            extra={"method": request.method, "path": request.url.path, "status": status, "duration_ms": duration_ms},
+        )
+        request_id_var.reset(token)
 
 
 @app.exception_handler(Exception)
