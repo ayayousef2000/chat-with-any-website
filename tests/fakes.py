@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import Settings
+from app.conversation import Turn
 from app.vector_store import RetrievedChunk, StoredChunk
 
 URL = "https://example.com/"
@@ -79,10 +80,19 @@ class FakeChat:
     def __init__(self, reply: str = "the answer [1][3]") -> None:
         self.reply = reply
         self.calls: list[tuple[str, str, list[RetrievedChunk]]] = []
+        self.condensed: list[tuple[str, list[Turn]]] = []
+        self.standalone: str | None = None  # what condense answers; None keeps the question as it was
+        self.condense_error: Exception | None = None
 
     def answer(self, question: str, title: str, chunks: Sequence[RetrievedChunk]) -> str:
         self.calls.append((question, title, list(chunks)))
         return self.reply
+
+    def condense(self, question: str, history: Sequence[Turn]) -> str:
+        self.condensed.append((question, list(history)))
+        if self.condense_error:
+            raise self.condense_error
+        return self.standalone if self.standalone is not None else question
 
 
 def make_settings(tmp_path: Path, **overrides: Any) -> Settings:

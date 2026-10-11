@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
+from app.conversation import Turn
 from app.errors import AppError, TooManyRequestsError
 from app.janitor import Janitor
 from app.pipeline import Pipeline
@@ -83,11 +84,23 @@ class ForgetResponse(BaseModel):
     deleted: bool
 
 
+# More turns than the server uses are accepted, so that a browser that sends a few extra is not refused.
+MAX_HISTORY_TURNS = 10
+
+
+class HistoryTurn(BaseModel):
+    """An earlier question of the conversation and the answer that was given to it."""
+
+    question: str = Field(min_length=1, max_length=2000)
+    answer: str = Field(min_length=1, max_length=10000)
+
+
 class AskRequest(BaseModel):
     """Request body for asking a question about a loaded page."""
 
     url: str = Field(min_length=1, max_length=2048)
     question: str = Field(min_length=1, max_length=2000)
+    history: list[HistoryTurn] = Field(default_factory=list, max_length=MAX_HISTORY_TURNS)
 
 
 class Source(BaseModel):
@@ -229,7 +242,8 @@ def forget(request: Request, url: str = Query(min_length=1, max_length=2048)) ->
 @app.post("/api/ask", dependencies=[Depends(limit_asks)])
 def ask(body: AskRequest, request: Request) -> AskResponse:
     """Answer a question about a previously loaded page."""
-    result = request.app.state.pipeline.ask(body.url, body.question)
+    history = [Turn(turn.question, turn.answer) for turn in body.history]
+    result = request.app.state.pipeline.ask(body.url, body.question, history)
     return AskResponse(
         answer=result.answer,
         sources=[

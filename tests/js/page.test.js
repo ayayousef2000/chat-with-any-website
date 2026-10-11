@@ -245,6 +245,52 @@ test("askWithReload returns the answer when the page is still stored", async () 
   assert.deepEqual(calls, [["/api/ask", { url: "https://a.example/", question: "Why?" }]]);
 });
 
+test("askWithReload sends the earlier turns with the question, and nothing extra for a first question", async () => {
+  const turns = [{ question: "Who was he?", answer: "A historian [1]." }];
+  const withTurns = fakePost([{ answer: "ok" }]);
+  await page.askWithReload(withTurns.post, "https://a.example/", "When did he die?", () => {}, turns);
+  assert.deepEqual(withTurns.calls, [
+    ["/api/ask", { url: "https://a.example/", question: "When did he die?", history: turns }],
+  ]);
+
+  const first = fakePost([{ answer: "ok" }]);
+  await page.askWithReload(first.post, "https://a.example/", "Who was he?", () => {}, []);
+  assert.deepEqual(Object.keys(first.calls[0][1]), ["url", "question"]);
+});
+
+test("askWithReload sends the earlier turns again when it has to load the page first", async () => {
+  const turns = [{ question: "Who was he?", answer: "A historian." }];
+  const { post, calls } = fakePost([new page.HttpError("not loaded", 404), { title: "T" }, { answer: "ok" }]);
+  await page.askWithReload(post, "https://a.example/", "When did he die?", () => {}, turns);
+  assert.deepEqual(calls[0][1].history, turns);
+  assert.deepEqual(calls[2][1].history, turns);
+  assert.equal("history" in calls[1][1], false, "loading the page needs no conversation");
+});
+
+test("rememberTurn keeps the last three turns and leaves the old list alone", () => {
+  let turns = [];
+  for (let n = 1; n <= 5; n += 1) {
+    const before = turns;
+    turns = page.rememberTurn(turns, `q${n}`, `a${n}`);
+    assert.notEqual(turns, before);
+  }
+  assert.deepEqual(
+    turns.map((turn) => turn.question),
+    ["q3", "q4", "q5"],
+  );
+  assert.deepEqual(page.rememberTurn([], "q", "a"), [{ question: "q", answer: "a" }]);
+});
+
+test("a new chat, a new page and deleted data start a new conversation, and failed questions are not remembered", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../app/static/app.js"), "utf8");
+  const emptyState = source.match(/function showEmptyState\(\) \{([\s\S]*?)\n  \}/)[1];
+  assert.match(emptyState, /history = \[\]/);
+  // A turn is added only after the answer has been shown, so an error leaves the conversation as it was.
+  const ask = source.match(/askForm\.addEventListener\("submit"[\s\S]*?\n  \}\);/)[0];
+  assert.ok(ask.indexOf("addAnswer(") < ask.indexOf("rememberTurn("));
+  assert.ok(ask.indexOf("rememberTurn(") < ask.indexOf("} catch"));
+});
+
 test("askWithReload loads the page again when its saved copy is gone, then asks once more", async () => {
   const { post, calls } = fakePost([new page.HttpError("not loaded", 404), { title: "T" }, { answer: "ok" }]);
   let reloads = 0;
