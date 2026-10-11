@@ -46,7 +46,7 @@ class FakePipeline:
         self.forgotten.append(url)
         return "known" in url
 
-    def ask(self, url: str, question: str) -> Answer:
+    def ask(self, url: str, question: str, history: Any = ()) -> Answer:
         if "unloaded" in url:
             raise NotIngestedError("This URL has not been loaded yet.")
         if "boom" in question:
