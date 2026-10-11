@@ -59,7 +59,7 @@ flowchart TB
 | Embeddings | `app/embeddings.py` | Cohere `embed-v5.0-pro`; each chunk is embedded with its page title and section heading as a prefix (`search_document` for chunks, `search_query` for questions) |
 | Vector database | `app/vector_store.py` | Weaviate Cloud collection with self-provided vectors, one set of chunks per URL |
 | Retrieval | `app/vector_store.py` | Hybrid search (keyword + vector, relative score fusion) filtered by URL, 25 candidates |
-| Reranking | `app/reranking.py` | Cohere `rerank-v4.0-fast` keeps the best 3 candidates (`TOP_K`) |
+| Reranking | `app/reranking.py` | Cohere `rerank-v4.0-fast` keeps the best 4 candidates (`TOP_K`) |
 | LLM response | `app/llm.py` | `openai/gpt-oss-120b` on Groq, instructed to answer only from the retrieved excerpts |
 
 `app/pipeline.py` ties the steps together, and `app/main.py` exposes them through a FastAPI app, with security headers (including a strict content security policy) and a web UI made of `app/static/index.html`, `styles.css` and `app.js`.
@@ -123,18 +123,20 @@ uv run python eval/run_eval.py eval/questions.json --out eval/results.json
 - `eval/questions.json`: 30 questions on 6 pages (English and Arabic), 4 answerable questions and 1 the page does not cover for each page.
 - `eval/questions.hard.json`: 24 questions on 5 pages, with details deep in long pages, answers that combine two sections, and 5 near-miss questions the page does not cover.
 - `eval/questions.followups.json`: 20 follow-up questions on 3 pages ("And 2.0?", "Which one gives me a string?"), each with the earlier turn or turns of its conversation, and 2 near-miss questions the page does not cover.
+- `eval/questions.code.json`: 13 "show me an example" questions on 3 documentation pages, where the answer is a piece of code.
 - `--pause` (default 10 seconds) waits between questions, which keeps the run under the per-minute limits of the free plans; `--no-ingest` skips loading pages that are already stored; `--no-history` asks the follow-up questions without their earlier turns, which shows what the conversation adds.
 
 Results with the default settings:
 
 | Question set | Expected phrase retrieved | Faithful | Correct |
 |---|---|---|---|
-| `questions.json` (30) | 23 of 24 | 30 of 30 | 30 of 30 |
+| `questions.json` (30) | 24 of 24 | 30 of 30 | 30 of 30 |
 | `questions.hard.json` (24) | 19 of 19 | 24 of 24 | 24 of 24 |
 | `questions.followups.json` (20) | 18 of 18 | 20 of 20 | 20 of 20 |
-| `questions.followups.json` (20), without the earlier turns | 18 of 18 | 17 of 20 | 17 of 20 |
+| `questions.followups.json` (20), without the earlier turns | 18 of 18 | 20 of 20 | 18 of 20 |
+| `questions.code.json` (13) | 13 of 13 | 13 of 13 | 13 of 13 |
 
-On the harder set, switching reranking off, using vector search only, and keeping 3 or 5 excerpts all scored the same. Run the script before and after changing the chunk size, `HYBRID_ALPHA`, `TOP_K` or the reranker to see whether a change helps. `eval/questions.example.json` shows the file format.
+On the harder set, switching reranking off, using vector search only, and keeping 3 or 5 excerpts all scored the same. On the code-example set, 4 or 5 excerpts found every example while 3 missed one (the passage with the example ranked fourth), so 4 is the default: a third more excerpt text than 3 for every question. Run the script before and after changing the chunk size, `HYBRID_ALPHA`, `TOP_K` or the reranker to see whether a change helps. `eval/questions.example.json` shows the file format.
 
 ## JavaScript-rendered pages
 
@@ -179,7 +181,7 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `CHUNK_SIZE` | `2000` | Maximum characters per chunk |
 | `CHUNK_OVERLAP` | `300` | Characters shared between consecutive chunks |
 | `RETRIEVE_K` | `25` | Candidates fetched from Weaviate before reranking |
-| `TOP_K` | `3` | Chunks passed to the LLM (3 and 5 scored the same on the evaluation set; 3 sends fewer tokens) |
+| `TOP_K` | `4` | Chunks passed to the LLM. 4 found every code example in the evaluation where 3 missed one, and sends a third more excerpt text than 3; 5 scored no better than 4 |
 | `HYBRID_ALPHA` | `0.65` | Blend of vector and keyword search (1 = vector only, 0 = keyword only) |
 | `FETCH_TIMEOUT_SECONDS` | `20` | Seconds to wait for a page to download |
 | `FETCH_MAX_BYTES` | `5000000` | The largest page to download, in bytes (5 MB); a larger page is refused |
