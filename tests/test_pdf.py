@@ -49,6 +49,62 @@ def test_the_name_of_the_file_is_the_title_when_the_file_has_none() -> None:
     assert page.title == "report final.pdf"
 
 
+BODY = ["The dominant sequence transduction models are based on complex recurrent networks."] * 4
+
+
+def test_a_file_without_a_title_gets_the_biggest_text_of_its_first_page() -> None:
+    pdf = make_pdf([[("Attention Is All You Need", 18), *BODY]])
+
+    assert extract_pdf(pdf, URL, 100).title == "Attention Is All You Need"
+
+
+def test_a_title_over_two_lines_is_joined() -> None:
+    pdf = make_pdf([[("A Very Long Title That Needs", 18), ("Two Lines Of Text", 18), *BODY]])
+
+    assert extract_pdf(pdf, URL, 100).title == "A Very Long Title That Needs Two Lines Of Text"
+
+
+def test_a_stamp_of_numbers_that_is_bigger_than_the_title_is_not_the_title() -> None:
+    """An archive prints its stamp, such as arXiv:1706.03762v7 [cs.CL] 2 Aug 2023, bigger than the paper's title."""
+    pdf = make_pdf([[("arXiv:1706.03762v7 [cs.CL] 2 Aug 2023", 20), ("Attention Is All You Need", 17), *BODY]])
+
+    assert extract_pdf(pdf, URL, 100).title == "Attention Is All You Need"
+
+
+def test_the_title_in_the_file_is_preferred_to_the_biggest_text() -> None:
+    pdf = make_pdf([[("Some Big Heading Text", 18), *BODY]], title="The Real Title")
+
+    assert extract_pdf(pdf, URL, 100).title == "The Real Title"
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        BODY,  # everything has the same size: nothing is a title
+        [("Slightly bigger heading text", 12), *[(text, 11) for text in BODY]],  # not bigger enough
+        [("Hi", 24), *BODY],  # too short to be a title
+        [("12345 67890 12345", 24), *BODY],  # not words
+        [("Word", 24), *BODY],  # a single word
+        [("Word " * 60, 24), *BODY],  # too long to be a title
+    ],
+    ids=["same size", "not bigger enough", "too short", "not words", "one word", "too long"],
+)
+def test_without_a_clear_title_the_name_of_the_file_is_used(lines: list[Any]) -> None:
+    assert extract_pdf(make_pdf([lines]), URL, 100).title == "report final.pdf"
+
+
+def test_only_the_first_page_can_give_the_title() -> None:
+    pdf = make_pdf([BODY, [("A Big Heading On Page Two", 24), *BODY]])
+
+    assert extract_pdf(pdf, URL, 100).title == "report final.pdf"
+
+
+def test_the_text_of_the_first_page_is_the_same_whether_or_not_a_title_is_looked_for() -> None:
+    page = extract_pdf(make_pdf([[("Attention Is All You Need", 18), *BODY]]), URL, 100)
+
+    assert page.text.startswith("## Page 1\n\nAttention Is All You Need The dominant sequence")
+
+
 def test_the_pages_become_sections_that_a_source_can_name() -> None:
     page = extract_pdf(REPORT, URL, 100)
 

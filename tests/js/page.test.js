@@ -28,6 +28,28 @@ test("bold, italic and inline code", () => {
   );
 });
 
+test("code written with two backticks, as in reStructuredText documentation, is code and not stray backticks", () => {
+  assert.equal(markdown("Call ``write()`` now"), "<p>Call <code>write()</code> now</p>");
+  assert.equal(markdown("Both ``a`` and `b` work"), "<p>Both <code>a</code> and <code>b</code> work</p>");
+});
+
+test("two-backtick code does not swallow the text that follows it, such as bold words", () => {
+  // An answer about json.dump: the single backticks used to pair up across the sentence and hide the bold word.
+  const answer = "a file-like object that supports a ``write()`` method for **str** objects, so ``fp.write()`` must accept them";
+
+  assert.equal(
+    markdown(answer),
+    "<p>a file-like object that supports a <code>write()</code> method for <strong>str</strong> objects, " +
+      "so <code>fp.write()</code> must accept them</p>",
+  );
+  assert.doesNotMatch(markdown(answer), /`|\*\*/);
+});
+
+test("a lone backtick or an unclosed pair stays plain text", () => {
+  assert.equal(markdown("a lone ` backtick"), "<p>a lone ` backtick</p>");
+  assert.equal(markdown("an unclosed ``pair"), "<p>an unclosed ``pair</p>");
+});
+
 test("bullet and numbered lists", () => {
   assert.equal(markdown("- one\n- two"), "<ul><li>one</li><li>two</li></ul>");
   assert.equal(markdown("1. first\n2. second"), "<ol><li>first</li><li>second</li></ol>");

@@ -6,6 +6,7 @@ import logging
 import re
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from io import BytesIO
 from itertools import islice
@@ -47,6 +48,12 @@ PDF_PROTECTED_MESSAGE = "This PDF is protected with a password, so it can't be r
 PDF_UNREADABLE_MESSAGE = "We couldn't read this PDF. The file may be damaged. Try a different document."
 
 _PDF_TYPES = frozenset({"application/pdf", "application/x-pdf"})
+
+# A PDF without a title of its own gets the biggest text of its first page, when it is this much bigger than the body
+# text and reads like a title: words, and between these lengths.
+TITLE_SIZE_FACTOR = 1.15
+MIN_TITLE_CHARS = 8
+MAX_TITLE_CHARS = 200
 
 # A page with less text than this has nothing to answer from. It is typically an empty shell that fills in its
 # content with JavaScript: such pages measure a few dozen characters, while the smallest real pages (like
@@ -434,14 +441,18 @@ def extract_pdf(data: bytes, url: str, max_pages: int, max_seconds: float = 30.0
         started = time.monotonic()
         read = 0
         sections = []
+        first_page: list[tuple[float, str]] = []  # the text of page one with its font sizes, to find a title
         for number, page in enumerate(islice(reader.pages, max_pages), start=1):
             if time.monotonic() - started > max_seconds:
                 break
-            text = _reflow(page.extract_text() or "")
+            if number == 1:
+                text = _reflow(page.extract_text(visitor_text=_collect_sizes(first_page)) or "")
+            else:
+                text = _reflow(page.extract_text() or "")
             read = number
             if text:
                 sections.append(f"## Page {number}\n\n{text}")
-        title = _pdf_title(reader, url)
+        title = _pdf_title(reader, url, first_page)
     except ExtractionError:
         raise
     except Exception as exc:
@@ -454,10 +465,45 @@ def extract_pdf(data: bytes, url: str, max_pages: int, max_seconds: float = 30.0
     return ExtractedPage(url=url, title=title, text="\n\n".join(sections))
 
 
-def _pdf_title(reader: PdfReader, url: str) -> str:
-    """The title written into the PDF, or the name of the file when there is none."""
+def _collect_sizes(into: list[tuple[float, str]]) -> Callable[..., None]:
+    """A reader of text pieces for pypdf that records every piece of a page with its font size."""
+
+    def visit(text: str, cm: Any, tm: Any, font_dict: Any, font_size: Any) -> None:
+        if text.strip():
+            into.append((round(float(font_size or 0), 1), text.strip()))
+
+    return visit
+
+
+def _title_from_text(pieces: list[tuple[float, str]]) -> str:
+    """The title of a paper or report: the biggest text on the first page that reads like words.
+
+    The body is the font size with most text. A title is bigger than the body, so sizes are tried from the biggest
+    down, and a size is skipped when its text is not made of words, such as a stamp of numbers and brackets
+    (``arXiv:1706.03762v7 [cs.CL] 2 Aug 2023``), which an archive prints bigger than the title itself.
+    """
+    if not pieces:
+        return ""
+    characters: dict[float, int] = {}
+    for size, text in pieces:
+        characters[size] = characters.get(size, 0) + len(text)
+    body = max(characters, key=lambda size: characters[size])
+    for size in sorted((size for size in characters if size > body * TITLE_SIZE_FACTOR), reverse=True):
+        candidate = " ".join(" ".join(text for piece_size, text in pieces if piece_size == size).split())
+        letters = sum(character.isalpha() for character in candidate)
+        words = len(candidate.split())
+        if MIN_TITLE_CHARS <= len(candidate) <= MAX_TITLE_CHARS and words >= 2 and letters >= len(candidate) * 0.75:
+            return candidate
+    return ""
+
+
+def _pdf_title(reader: PdfReader, url: str, first_page: list[tuple[float, str]]) -> str:
+    """The title written into the PDF, else the biggest text of its first page, else the name of the file."""
     title = (reader.metadata.title if reader.metadata else None) or ""
     title = " ".join(str(title).split())
+    if title:
+        return title
+    title = _title_from_text(first_page)
     if title:
         return title
     name = unquote(urlsplit(url).path.rsplit("/", 1)[-1])

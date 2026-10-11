@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import cohere.errors as cohere_errors
 import pytest
@@ -100,10 +101,47 @@ def test_ask_with_reranker_uses_reranked_order(settings: Settings) -> None:
 
     answer = pipeline.ask(URL, "What is retrieval?")
 
-    # The fake store returns the first 8 chunks; the fake reranker reverses them and keeps 3.
-    assert [c.chunk_index for c in answer.retrieved] == [7, 6, 5]
-    assert all(c.score == 0.9 for c in answer.retrieved)
+    # The fake store returns the first 8 chunks; the fake reranker reverses them and keeps 3. The first passage of
+    # the search (0) takes the place of the last one, which the reranker had put last.
+    assert [c.chunk_index for c in answer.retrieved] == [7, 6, 0]
+    assert [c.score for c in answer.retrieved[:2]] == [0.9, 0.9]
     assert chat.calls[0][2] == answer.retrieved
+
+
+class FixedReranker:
+    """A reranker that answers with the chunks at the given positions of the search order."""
+
+    def __init__(self, *positions: int) -> None:
+        self.positions = positions
+
+    def rerank(self, query: str, chunks: list[RetrievedChunk], top_n: int) -> list[RetrievedChunk]:
+        return [chunks[position] for position in self.positions][:top_n]
+
+
+def _asked(settings: Settings, reranker: Any, **changes: Any) -> list[int]:
+    embedder, store, chat = FakeEmbedder(), FakeStore(), FakeChat()
+    pipeline = Pipeline(
+        settings.model_copy(update=changes), embedder=embedder, store=store, reranker=reranker, llm=chat
+    )
+    pipeline.ingest(URL)
+    return [c.chunk_index for c in pipeline.ask(URL, "what is retrieval").retrieved]
+
+
+def test_the_first_passage_of_the_search_is_kept_when_the_reranker_drops_it(settings: Settings) -> None:
+    # The reranker puts 4, 2 and 1 first; the search had 0 first, so it replaces the last of them.
+    assert _asked(settings, FixedReranker(4, 2, 1)) == [4, 2, 0]
+
+
+def test_the_first_passage_is_not_added_twice_and_the_reranked_order_is_kept(settings: Settings) -> None:
+    assert _asked(settings, FixedReranker(2, 0, 1)) == [2, 0, 1]
+
+
+def test_with_room_for_one_passage_only_the_reranker_decides(settings: Settings) -> None:
+    assert _asked(settings, FixedReranker(3), top_k=1) == [3]
+
+
+def test_an_empty_answer_of_the_reranker_still_shows_the_first_passage(settings: Settings) -> None:
+    assert _asked(settings, FixedReranker()) == [0]
 
 
 class LimitedReranker:

@@ -144,7 +144,8 @@ function stillLoadedNote(title) {
   return `Your current page, "${title}", is still loaded, so you can keep asking questions about it.`;
 }
 
-const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(\*[^\s*][^*\n]*?\*)|(\[\d+\])|(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g;
+// Code is written with one backtick or, as documentation written in reStructuredText does, with two: ``write()``.
+const INLINE = /(``[^`\n]+``|`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(\*[^\s*][^*\n]*?\*)|(\[\d+\])|(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g;
 
 // Renders inline Markdown (code, bold, italic, links) and [n] citation markers into `parent`.
 // `cite(number)` returns the node to use for a citation, or null to leave the marker as plain text.
@@ -155,7 +156,8 @@ function renderInline(parent, text, cite) {
     if (match.index > last) parent.append(text.slice(last, match.index));
     if (match[1]) {
       const code = createElement("code");
-      code.textContent = token.slice(1, -1);
+      const fence = token.startsWith("``") ? 2 : 1; // the backticks around the code are not part of it
+      code.textContent = token.slice(fence, -fence);
       parent.append(code);
     } else if (match[2]) {
       const strong = createElement("strong");
