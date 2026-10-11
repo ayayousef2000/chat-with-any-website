@@ -127,6 +127,16 @@ test("the page shrinks to the space above the on-screen keyboard, so the questio
   assert.doesNotMatch(viewport, /user-scalable|maximum-scale/, "zooming stays possible");
 });
 
+test("with little height, the conversation gets the room once a page is loaded, and a page-less screen keeps its address box", () => {
+  const block = css.match(/@media \(max-width: 600px\) and \(max-height: 560px\) \{([\s\S]*?)\n\}/)[1];
+  const hidden = block.match(/:is\(([^)]*)\) \{ display: none; \}/)[1];
+
+  for (const part of ["header", "#ingest-form", ".page-actions"]) assert.ok(hidden.includes(part), `${part} steps aside`);
+  assert.doesNotMatch(hidden, /#messages|#ask-form|\.status/, "the conversation, the question box and the messages stay");
+  // Every rule applies only when a page is loaded; without one the address box is the only way to start.
+  for (const selector of block.match(/^\s*main[^{]*\{/gm)) assert.match(selector, /main:has\(#page-bar:not\(\[hidden\]\)\)/);
+});
+
 test("the switch in the page is a labelled group of three icon buttons that starts hidden", () => {
   assert.match(html, /<div id="theme-switch" class="theme-switch" role="group" aria-label="Color theme" hidden>/);
   const names = { system: "System theme", light: "Light theme", dark: "Dark theme" };
