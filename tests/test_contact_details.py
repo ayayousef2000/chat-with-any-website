@@ -138,7 +138,9 @@ def test_hostile_text_is_handled_quickly() -> None:
 
 
 def test_contacts_are_added_to_the_text_of_a_loaded_page(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(extraction, "fetch_html", lambda *args: _page('<a href="tel:+442079460958">Call</a>'))
+    monkeypatch.setattr(
+        extraction, "fetch_document", lambda *args, **kwargs: ("html", _page('<a href="tel:+442079460958">Call</a>'))
+    )
 
     page = load_page(URL, 1, 1, False, 500)
 
@@ -148,14 +150,14 @@ def test_contacts_are_added_to_the_text_of_a_loaded_page(monkeypatch: pytest.Mon
 
 
 def test_a_page_without_contact_details_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(extraction, "fetch_html", lambda *args: _page(""))
+    monkeypatch.setattr(extraction, "fetch_document", lambda *args, **kwargs: ("html", _page("")))
 
     assert "Contact details" not in load_page(URL, 1, 1, False, 500).text
 
 
 def test_a_page_of_only_a_contact_link_still_counts_as_having_no_readable_text(monkeypatch: pytest.MonkeyPatch) -> None:
     html = b'<html><body><div id="app"></div><a href="mailto:a@example.com">mail</a></body></html>'
-    monkeypatch.setattr(extraction, "fetch_html", lambda *args: html)
+    monkeypatch.setattr(extraction, "fetch_document", lambda *args, **kwargs: ("html", html))
 
     with pytest.raises(ExtractionError) as caught:
         load_page(URL, 1, 1, False, 500)

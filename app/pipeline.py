@@ -238,6 +238,9 @@ class Pipeline:
             url,
             timeout=self._settings.fetch_timeout_seconds,
             max_bytes=self._settings.fetch_max_bytes,
+            pdf_max_bytes=self._settings.pdf_max_bytes,
+            pdf_max_pages=self._settings.pdf_max_pages,
+            pdf_max_seconds=self._settings.pdf_max_seconds,
             browser_fallback=self._settings.browser_fallback,
             min_text_chars=self._settings.min_text_chars,
         )
