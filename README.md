@@ -195,6 +195,8 @@ All settings are read from environment variables or `.env`. See [`.env.example`]
 | `RATE_LIMIT_ASKS_PER_DAY` | `60` | Questions one visitor may ask in a day (a sliding 24 hours) |
 | `RATE_LIMIT_LOADS_PER_HOUR` | `20` | Page loads and deletes one visitor may make in an hour |
 | `DEBUG_CLIENT_ADDRESS` | `false` | For testing a hosting setup only: `/health` then shows which address the app takes for the caller (`X-Debug-*` headers) |
+| `LOG_LEVEL` | `INFO` | Lowest level that is logged: `DEBUG`, `INFO`, `WARNING` or `ERROR` |
+| `LOG_FORMAT` | `text` | `text` for readable lines, `json` for one JSON object per line (set on Render). Every line carries a request id, also sent back as the `X-Request-ID` header. Questions, request bodies and visitors' addresses are never logged |
 | `PAGE_IDLE_MINUTES` | `15` | Minutes without a question after which a stored page is deleted |
 | `PAGE_MAX_AGE_HOURS` | `12` | Age after which a stored page is deleted even if it is in use |
 | `MAX_STORED_CHUNKS` | `60000` | Size limit; least recently used pages are removed first |
