@@ -10,8 +10,11 @@ def _escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def make_pdf(pages: Sequence[Sequence[str]], title: str | None = None) -> bytes:
-    """Build a PDF with one page per list of lines. A page with no lines has no text, like a scanned page."""
+def make_pdf(pages: Sequence[Sequence[str | tuple[str, int]]], title: str | None = None) -> bytes:
+    """Build a PDF with one page per list of lines. A page with no lines has no text, like a scanned page.
+
+    A line is a text, or a text with its font size in points (12 when it is only a text).
+    """
     body = bytearray(b"%PDF-1.4\n")
     offsets: list[int] = []
 
@@ -33,7 +36,10 @@ def make_pdf(pages: Sequence[Sequence[str]], title: str | None = None) -> bytes:
             f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_number} 0 R "
             "/Resources << /Font << /F1 3 0 R >> >> >>".encode()
         )
-        operations = [f"BT /F1 12 Tf 72 {720 - 16 * row} Td ({_escape(line)}) Tj ET" for row, line in enumerate(lines)]
+        sized = [line if isinstance(line, tuple) else (line, 12) for line in lines]
+        operations = [
+            f"BT /F1 {size} Tf 72 {720 - 28 * row} Td ({_escape(text)}) Tj ET" for row, (text, size) in enumerate(sized)
+        ]
         stream = "\n".join(operations).encode("latin-1")
         add(f"<< /Length {len(stream)} >>\nstream\n".encode() + stream + b"\nendstream")
     info = add(f"<< /Title ({_escape(title)}) >>".encode()) if title else None
