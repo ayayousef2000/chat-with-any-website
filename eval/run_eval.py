@@ -1,7 +1,8 @@
 """Score the pipeline on a set of questions.
 
 Usage:
-    uv run python eval/run_eval.py eval/questions.json [--out eval/results.json] [--pause 10] [--no-ingest]
+    uv run python eval/run_eval.py eval/questions.json [--out eval/results.json] [--pause 10]
+        [--no-ingest] [--no-history]
 
 The pause between questions keeps the run under the free plans' per-minute limits. Cohere's trial key allows
 10 reranking calls a minute, and when it refuses, the pipeline quietly ranks by search order instead, which would
@@ -25,6 +26,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import get_settings
+from app.conversation import Turn
 from app.llm import GroqChat
 from app.pipeline import Pipeline
 from app.upstream import Retrier, RetryPolicy
@@ -85,6 +87,11 @@ def main() -> None:
     parser.add_argument("dataset", type=Path)
     parser.add_argument("--out", type=Path, help="Write per-question results to this JSON file")
     parser.add_argument("--no-ingest", action="store_true", help="Skip loading the pages (already stored)")
+    parser.add_argument(
+        "--no-history",
+        action="store_true",
+        help="Ask every question without the earlier turns of its case (the way follow-ups were answered before)",
+    )
     parser.add_argument("--pause", type=float, default=10.0, help="Seconds to wait after each question (default 10)")
     args = parser.parse_args()
 
@@ -108,7 +115,8 @@ def main() -> None:
 
             for case in page["questions"]:
                 answerable = case.get("answerable", True)
-                outcome = pipeline.ask(url, case["question"])
+                turns = [] if args.no_history else [Turn(t["question"], t["answer"]) for t in case.get("history", [])]
+                outcome = pipeline.ask(url, case["question"], turns)
                 excerpts = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(outcome.retrieved, start=1))
 
                 phrases = [phrase.casefold() for phrase in case.get("must_contain", [])]

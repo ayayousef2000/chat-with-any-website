@@ -1,0 +1,275 @@
+[
+  {
+    "url": "https://docs.python.org/3/library/json.html",
+    "questions": [
+      {
+        "history": [
+          {
+            "question": "What does json.dumps do?",
+            "answer": "json.dumps serializes a Python object to a JSON formatted string [1]."
+          }
+        ],
+        "question": "And how do I write it straight to a file instead?",
+        "reference": "Use json.dump, which serializes the object to a file-like object, for example json.dump(obj, fp).",
+        "must_contain": [
+          "json.dump("
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "What does json.loads do?",
+            "answer": "json.loads deserializes a JSON string into a Python object [1]."
+          }
+        ],
+        "question": "What happens if the data is not valid?",
+        "reference": "It raises JSONDecodeError when the data being deserialized is not a valid JSON document.",
+        "must_contain": [
+          "JSONDecodeError"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "What does the indent parameter do?",
+            "answer": "If indent is a non-negative integer or string, array elements and object members are pretty-printed with that indent level [1]."
+          }
+        ],
+        "question": "What if it is set to 0?",
+        "reference": "An indent level of 0, negative, or an empty string only inserts newlines.",
+        "must_contain": [
+          "0, negative"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "How can I get the keys in order?",
+            "answer": "Pass sort_keys=True to json.dumps so that the keys are sorted [1]."
+          }
+        ],
+        "question": "Can you show me an example of that?",
+        "reference": "json.dumps({\"c\": 0, \"b\": 0, \"a\": 0}, sort_keys=True) gives {\"a\": 0, \"b\": 0, \"c\": 0}.",
+        "must_contain": [
+          "sort_keys=True"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "What does json.loads do?",
+            "answer": "json.loads deserializes a JSON string into a Python object [1]."
+          }
+        ],
+        "question": "What does json.dump do?",
+        "reference": "json.dump serializes an object as a JSON formatted stream to a file-like object.",
+        "must_contain": [
+          "json.dump("
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "What does json.dumps do?",
+            "answer": "json.dumps serializes a Python object to a JSON formatted string [1]."
+          }
+        ],
+        "question": "Does it also support XML?",
+        "answerable": false
+      },
+      {
+        "history": [
+          {
+            "question": "Which functions write JSON?",
+            "answer": "json.dump writes to a file and json.dumps returns a string [1]."
+          }
+        ],
+        "question": "Which one gives me a string?",
+        "reference": "json.dumps serializes the object to a string.",
+        "must_contain": [
+          "json.dumps"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "What does the separators parameter do?",
+            "answer": "It sets the item and key separators used in the output [1]."
+          }
+        ],
+        "question": "What are its default values?",
+        "reference": "If None, separators defaults to (', ', ': ') if indent is None, and (',', ': ') otherwise.",
+        "must_contain": [
+          "otherwise"
+        ]
+      }
+    ]
+  },
+  {
+    "url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+    "questions": [
+      {
+        "history": [
+          {
+            "question": "Who created Python?",
+            "answer": "Python was conceived by Guido van Rossum [1]."
+          }
+        ],
+        "question": "Where was he working at the time?",
+        "reference": "He was working at Centrum Wiskunde & Informatica (CWI) in the Netherlands.",
+        "must_contain": [
+          "Centrum Wiskunde"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "When was Python 3.0 released?",
+            "answer": "Python 3.0 was released on 3 December 2008 [1]."
+          }
+        ],
+        "question": "Was it compatible with the earlier versions?",
+        "reference": "No. It was a major revision and not completely backward-compatible with earlier versions.",
+        "must_contain": [
+          "not completely backward-compatible"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "Which version introduced the walrus operator?",
+            "answer": "The walrus operator was introduced in Python 3.8 [1]."
+          }
+        ],
+        "question": "Why did Guido van Rossum resign over it?",
+        "reference": "He resigned as Benevolent Dictator for Life after conflict about adding the assignment expression operator in Python 3.8.",
+        "must_contain": [
+          "Benevolent Dictator"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "What language was Python a successor of?",
+            "answer": "Python was a successor to the ABC programming language [1]."
+          }
+        ],
+        "question": "Where does the name Python come from?",
+        "reference": "The name derives from the British comedy series Monty Python's Flying Circus.",
+        "must_contain": [
+          "Monty Python"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "Who created Python?",
+            "answer": "Python was conceived by Guido van Rossum [1]."
+          }
+        ],
+        "question": "What is his phone number?",
+        "answerable": false
+      },
+      {
+        "history": [
+          {
+            "question": "When was Python 3.0 released?",
+            "answer": "Python 3.0 was released on 3 December 2008 [1]."
+          }
+        ],
+        "question": "And 2.0?",
+        "reference": "Python 2.0 was released on 16 October 2000.",
+        "must_contain": [
+          "16 October 2000"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "When was Python 2.0 released?",
+            "answer": "Python 2.0 was released on 16 October 2000 [1]."
+          }
+        ],
+        "question": "What new features did that bring?",
+        "reference": "List comprehensions, cycle-detecting garbage collection, reference counting and Unicode support.",
+        "must_contain": [
+          "list comprehensions"
+        ]
+      }
+    ]
+  },
+  {
+    "url": "https://docs.python.org/3/tutorial/venv.html",
+    "questions": [
+      {
+        "history": [
+          {
+            "question": "How do I create a virtual environment?",
+            "answer": "Run python -m venv tutorial-env with the directory path [1]."
+          }
+        ],
+        "question": "How do I switch it on in Windows?",
+        "reference": "On Windows, run tutorial-env\\Scripts\\activate.",
+        "must_contain": [
+          "Scripts"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "How do I create a virtual environment?",
+            "answer": "Run python -m venv tutorial-env with the directory path [1]."
+          },
+          {
+            "question": "How do I switch it on in Windows?",
+            "answer": "Run tutorial-env\\Scripts\u0007ctivate [1]."
+          }
+        ],
+        "question": "And on Unix or macOS?",
+        "reference": "On Unix or macOS, run source tutorial-env/bin/activate.",
+        "must_contain": [
+          "bin/activate"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "How do I activate it on Unix?",
+            "answer": "Run source tutorial-env/bin/activate [1]."
+          }
+        ],
+        "question": "How do I turn it off again?",
+        "reference": "Type deactivate into the terminal.",
+        "must_contain": [
+          "deactivate"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "How do I install a package?",
+            "answer": "Run python -m pip install followed by the package name [1]."
+          }
+        ],
+        "question": "And how do I get a specific version of it?",
+        "reference": "Follow the package name by == and the version number, for example python -m pip install requests==2.6.0.",
+        "must_contain": [
+          "requests==2.6.0"
+        ]
+      },
+      {
+        "history": [
+          {
+            "question": "How do I list the installed packages?",
+            "answer": "Run python -m pip list, or pip freeze for a similar list [1]."
+          }
+        ],
+        "question": "Where do people usually save that?",
+        "reference": "A common convention is to put the list in a requirements.txt file.",
+        "must_contain": [
+          "requirements.txt"
+        ]
+      }
+    ]
+  }
+]

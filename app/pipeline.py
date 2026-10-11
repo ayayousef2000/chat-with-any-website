@@ -11,6 +11,7 @@ from app.chunking import chunk_text, contextualize
 from app.citations import cited_numbers
 from app.cleaning import clean_text
 from app.config import Settings
+from app.conversation import Turn, usable_question
 from app.embeddings import CohereEmbedder
 from app.errors import ExtractionError, NotIngestedError
 from app.extraction import load_page, normalize_url
@@ -111,6 +112,10 @@ class Chat(Protocol):
 
     def answer(self, question: str, title: str, chunks: Sequence[RetrievedChunk]) -> str:
         """Answer a question from the excerpts."""
+        ...
+
+    def condense(self, question: str, history: Sequence[Turn]) -> str:
+        """Rewrite a follow-up question so that it can be understood without the earlier turns."""
         ...
 
 
@@ -251,12 +256,15 @@ class Pipeline:
         self._store.replace_source(url, page.title, stored)
         return IngestResult(url=url, title=page.title, chunk_count=len(chunks))
 
-    def ask(self, url: str, question: str) -> Answer:
+    def ask(self, url: str, question: str, history: Sequence[Turn] = ()) -> Answer:
         """Answer a question about a page that was loaded with :meth:`ingest`.
 
         Args:
             url: The page address.
             question: The user's question.
+            history: The earlier turns of the conversation, oldest first. When there are some, the question is
+                first rewritten so that it makes sense on its own ("When did he die?" becomes "When did Ibn Khaldun
+                die?"), and the page is searched with the rewritten question.
 
         Returns:
             The answer and the excerpts it cites.
@@ -269,6 +277,7 @@ class Pipeline:
             raise NotIngestedError("Load a page first, then ask your question.")
         self._registry.touch(url, self._clock())
 
+        question = self._standalone(question, history)
         query_vector = self._embedder.embed_query(question)
         chunks = self._store.search(url, question, query_vector, self._settings.retrieve_k, self._settings.hybrid_alpha)
         if not chunks:
@@ -279,6 +288,20 @@ class Pipeline:
         answer = self._llm.answer(question, chunks[0].title, chunks)
         sources = [CitedSource(number=n, chunk=chunks[n - 1]) for n in cited_numbers(answer, len(chunks))]
         return Answer(answer=answer, sources=sources, retrieved=chunks)
+
+    def _standalone(self, question: str, history: Sequence[Turn]) -> str:
+        """Rewrite a follow-up question so that it makes sense without the earlier turns.
+
+        Without earlier turns nothing is rewritten and no model is asked. A service that is limited or briefly down
+        must not stop a question from being answered, so then the question is used as it was written.
+        """
+        if not history:
+            return question
+        try:
+            return usable_question(question, self._llm.condense(question, history))
+        except RETRYABLE_ERRORS as error:
+            logger.warning("Rewriting a follow-up question failed with %s; using it as written", type(error).__name__)
+            return question
 
     def _best_chunks(self, question: str, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
         """Pick the excerpts to answer from: the reranked best ones, or the top of the search order.

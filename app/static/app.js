@@ -41,15 +41,25 @@ function openedText(openedAt, now = Date.now()) {
 
 // Asks a question. If the saved copy of the page is gone (it expired or was deleted), loads the page again and
 // asks once more. `post(path, payload)` sends a request and rejects with an HttpError on failure.
-async function askWithReload(post, url, question, onReload) {
+async function askWithReload(post, url, question, onReload, history = []) {
+  // The earlier turns are only sent when there are some, so a first question is exactly as it was before.
+  const payload = history.length ? { url, question, history } : { url, question };
   try {
-    return await post("/api/ask", { url, question });
+    return await post("/api/ask", payload);
   } catch (error) {
     if (!(error instanceof HttpError) || error.status !== 404) throw error;
   }
   onReload();
   await post("/api/ingest", { url });
-  return post("/api/ask", { url, question });
+  return post("/api/ask", payload);
+}
+
+// The last few questions and answers of this conversation, which are sent with the next question so that a follow-up
+// like "When did he die?" can be understood. They live only in this tab; the server keeps no conversation.
+const HISTORY_TURNS = 3;
+
+function rememberTurn(history, question, answer, limit = HISTORY_TURNS) {
+  return [...history, { question, answer }].slice(-limit);
 }
 
 // Puts the assistant's icon beside one of its messages. Returns the row that holds both.
@@ -600,6 +610,7 @@ function init() {
   const pageMeta = document.getElementById("page-meta");
 
   let page = null; // the page the questions are about: { url, title, openedAt }
+  let history = []; // the last turns of this conversation: [{ question, answer }]
   let busy = false;
 
   const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -662,6 +673,7 @@ function init() {
 
   function showEmptyState() {
     messagesEl.replaceChildren();
+    history = []; // a new chat, a new page or deleted data starts a new conversation
     const empty = createElement("div", "empty");
     if (page === null) {
       const first = createElement("p");
@@ -773,9 +785,10 @@ function init() {
         page.openedAt = Date.now(); // the page is fetched again, so it is as new as it gets
         renderPageMeta();
         savePage();
-      });
+      }, history);
       typing.remove();
       addAnswer(result.answer, result.sources, question);
+      history = rememberTurn(history, question, result.answer);
     } catch (error) {
       typing.remove();
       addMessage("assistant error", friendlyError(error));
@@ -873,6 +886,7 @@ if (typeof module !== "undefined" && module.exports) {
     formatAge,
     openedText,
     askWithReload,
+    rememberTurn,
     safeUrl,
     plainText,
     friendlyError,
