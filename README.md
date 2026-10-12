@@ -13,6 +13,7 @@ Paste the address of a web page, then ask questions about it. Answers come only 
 - **Grounded answers.** The model sees only excerpts of the page. When the page does not cover a question, it says so instead of guessing.
 - **Citations you can check.** Each cited source shows the matching line or sentences with the matching words highlighted, and the full section is one click away.
 - **Follow-up questions.** Ask "When did he die?" after "Who was he?": the last three questions and answers are used to understand a follow-up before the page is searched.
+- **PDF files.** Paste a link to a PDF as well as a web page. It is read a page at a time, and a source is named by its page ("Page 8").
 - **Any language.** The answer is written in the language of the question. Tested on English and Arabic pages.
 - **Kind to free plans.** Rate limits and short outages of the services are waited out, several Groq keys are used in turn, and each visitor has limits.
 - **Light and dark themes.** The page follows the setting of your device, and a switch in the header lets you choose System, Light or Dark.
@@ -52,8 +53,8 @@ flowchart TB
 
 | Step | Module | Implementation |
 |---|---|---|
-| Website | `app/extraction.py` | `httpx` download with size limit, HTML-only, and blocking of private/local addresses |
-| Content extraction | `app/extraction.py` | `trafilatura` keeps the main content as Markdown and drops navigation, ads and footers; phone numbers, WhatsApp numbers and email addresses (from `tel:`, `mailto:` and WhatsApp links, and from the visible text of footers) are kept in a short "Contact details" section, so visitors can ask for them |
+| Website | `app/extraction.py` | `httpx` download of web pages and PDF files with size limits (`FETCH_MAX_BYTES`, `PDF_MAX_BYTES`), and blocking of private/local addresses |
+| Content extraction | `app/extraction.py` | `trafilatura` keeps the main content as Markdown and drops navigation, ads and footers; phone numbers, WhatsApp numbers and email addresses (from `tel:`, `mailto:` and WhatsApp links, and from the visible text of footers) are kept in a short "Contact details" section, so visitors can ask for them. A PDF is read a page at a time with `pypdf`, each page under its own `Page N` heading; its title comes from the file, or from the biggest text of its first page |
 | Cleaning | `app/cleaning.py` | Unicode and whitespace normalization, footnote markup removal, duplicate paragraph removal |
 | Chunking | `app/chunking.py` | Recursive paragraph → sentence → word splitting (about 2000 characters, 300 overlap); headings stay with their section |
 | Embeddings | `app/embeddings.py` | Cohere `embed-v5.0-pro`; each chunk is embedded with its page title and section heading as a prefix (`search_document` for chunks, `search_query` for questions) |
@@ -257,6 +258,7 @@ The text of every page you load is sent to Cohere (embeddings and reranking) and
 
 - Only the single page at the given URL is indexed; links are not crawled.
 - Pages that render their content with JavaScript may return little or no text unless the browser fallback is enabled.
+- A PDF without selectable text, such as a scan, can't be read, and a password-protected PDF is refused. Only the first `PDF_MAX_PAGES` pages (100 by default) are read, and the text says so when a document is longer.
 - A follow-up is understood from the last three questions and answers only. They are used to rewrite the question before the page is searched; the answer is then written from the excerpts of the page, so a request about the conversation itself ("summarise what you just said") is not supported.
 
 ## Contributing
