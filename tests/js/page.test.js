@@ -289,6 +289,38 @@ test("askWithReload sends the earlier turns again when it has to load the page f
   assert.equal("history" in calls[1][1], false, "loading the page needs no conversation");
 });
 
+test("turnsWithoutBackticks removes every backtick mark and keeps the words", () => {
+  const turns = [
+    {
+      question: "How do I sort the keys?",
+      answer: "Use the `sort_keys` option, or run `python -m json` with ``--sort-keys``.\n```\npython -m json\n```",
+    },
+  ];
+  const [turn] = page.turnsWithoutBackticks(turns);
+  assert.equal(turn.question, "How do I sort the keys?");
+  assert.equal(turn.answer, "Use the sort_keys option, or run python -m json with --sort-keys.\n\npython -m json\n");
+  assert.equal(turn.answer.includes("`"), false);
+  assert.equal(turns[0].answer.includes("`"), true, "the list kept by the page is not changed");
+  assert.deepEqual(page.turnsWithoutBackticks([]), []);
+});
+
+test("askWithReload never sends a backtick in the earlier turns, also when it reloads the page first", async () => {
+  const turns = [{ question: "What does `json.dumps` do?", answer: "Run `python -m json` to see [1]." }];
+  const plain = [{ question: "What does json.dumps do?", answer: "Run python -m json to see [1]." }];
+
+  const direct = fakePost([{ answer: "ok" }]);
+  await page.askWithReload(direct.post, "https://a.example/", "Why?", () => {}, turns);
+  assert.deepEqual(direct.calls[0][1].history, plain);
+  assert.equal(JSON.stringify(direct.calls).includes("`"), false);
+
+  const reloaded = fakePost([new page.HttpError("not loaded", 404), { title: "T" }, { answer: "ok" }]);
+  await page.askWithReload(reloaded.post, "https://a.example/", "Why?", () => {}, turns);
+  assert.deepEqual(reloaded.calls[0][1].history, plain);
+  assert.deepEqual(reloaded.calls[2][1].history, plain);
+  assert.equal(JSON.stringify(reloaded.calls).includes("`"), false);
+  assert.equal(turns[0].answer.includes("`"), true, "the list kept by the page is not changed");
+});
+
 test("rememberTurn keeps the last three turns and leaves the old list alone", () => {
   let turns = [];
   for (let n = 1; n <= 5; n += 1) {
