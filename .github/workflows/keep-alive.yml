@@ -1,0 +1,60 @@
+name: Keep services active
+
+# The free Weaviate Cloud cluster is suspended after about 7 days without activity and deleted after about 30.
+# Twice a week this workflow wakes the production service (the free Render plan puts it to sleep) and loads and
+# deletes one small page through it, which makes the app read and write the cluster. If any step fails, the run
+# fails and GitHub emails the repository owner, which is also an early warning that the service is down.
+# Scheduled runs use the default branch, and GitHub stops them after 60 days without any repository activity.
+on:
+  schedule:
+    - cron: "17 6 * * 1,4" # Monday and Thursday, 06:17 UTC (never more than 4 days apart)
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  keep-alive:
+    name: Keep services active
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {}
+    env:
+      BASE_URL: https://chat-with-any-website-fnmo.onrender.com
+      PAGE_URL: https://example.com
+    steps:
+      - name: Wake the service
+        # A sleeping free service needs about a minute to start, and the first answer can take longer. The tries add up
+        # to 6 minutes at most (8 x 30 s waiting for an answer, 7 x 15 s between tries), so a service that never starts
+        # ends this step with a clear message before the 10 minute limit of the job cancels everything.
+        run: |
+          for attempt in $(seq 1 8); do
+            if curl --silent --show-error --fail --max-time 30 "$BASE_URL/health"; then
+              echo
+              exit 0
+            fi
+            echo "Attempt $attempt of 8 failed"
+            if [ "$attempt" -lt 8 ]; then
+              sleep 15
+            fi
+          done
+          echo "The service did not answer in 6 minutes. Look at its logs on Render: it cannot start when the Weaviate cluster is suspended or deleted." >&2
+          exit 1
+
+      - name: Load a page (reads and writes the vector database)
+        run: |
+          curl --silent --show-error --fail-with-body --max-time 120 \
+            --request POST "$BASE_URL/api/ingest" \
+            --header "Content-Type: application/json" \
+            --data "{\"url\": \"$PAGE_URL\", \"refresh\": true}"
+          echo
+
+      - name: Delete the page again
+        run: |
+          curl --silent --show-error --fail-with-body --max-time 60 \
+            --request DELETE --get "$BASE_URL/api/page" \
+            --data-urlencode "url=$PAGE_URL"
+          echo

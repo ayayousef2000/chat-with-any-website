@@ -62,6 +62,14 @@ updates:
     labels:
       - dependencies
       - docker
+    # The project is developed, tested and released on Python 3.14 (see .python-version and pyproject.toml), so the
+    # python image is only updated within that version. Moving to a new Python version is done by hand, together
+    # with the version files and the CI checks. Remove this rule when that move is planned.
+    ignore:
+      - dependency-name: python
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     groups:
       docker-images:
         patterns: ["*"]
