@@ -39,11 +39,22 @@ function openedText(openedAt, now = Date.now()) {
   return `Opened ${formatAge(Math.max(0, (now - openedAt) / 1000))}`;
 }
 
+// The firewall in front of the host (Cloudflare) refuses a whole request, with a plain 403, when its body holds a
+// command in backticks such as `python -m json`, which is what an answer about code often contains. The earlier turns
+// are therefore sent without backtick marks: the words are the same, and they only give the server context. The
+// conversation shown on the page and the list kept in `history` are left as they are.
+function turnsWithoutBackticks(turns) {
+  return turns.map(({ question, answer }) => ({
+    question: question.replaceAll("`", ""),
+    answer: answer.replaceAll("`", ""),
+  }));
+}
+
 // Asks a question. If the saved copy of the page is gone (it expired or was deleted), loads the page again and
 // asks once more. `post(path, payload)` sends a request and rejects with an HttpError on failure.
 async function askWithReload(post, url, question, onReload, history = []) {
   // The earlier turns are only sent when there are some, so a first question is exactly as it was before.
-  const payload = history.length ? { url, question, history } : { url, question };
+  const payload = history.length ? { url, question, history: turnsWithoutBackticks(history) } : { url, question };
   try {
     return await post("/api/ask", payload);
   } catch (error) {
@@ -888,6 +899,7 @@ if (typeof module !== "undefined" && module.exports) {
     formatAge,
     openedText,
     askWithReload,
+    turnsWithoutBackticks,
     rememberTurn,
     safeUrl,
     plainText,
