@@ -27,17 +27,21 @@ jobs:
       PAGE_URL: https://example.com
     steps:
       - name: Wake the service
-        # A sleeping free service needs about a minute to start, and the first answer can take longer.
+        # A sleeping free service needs about a minute to start, and the first answer can take longer. The tries add up
+        # to 6 minutes at most (8 x 30 s waiting for an answer, 7 x 15 s between tries), so a service that never starts
+        # ends this step with a clear message before the 10 minute limit of the job cancels everything.
         run: |
-          for attempt in $(seq 1 16); do
+          for attempt in $(seq 1 8); do
             if curl --silent --show-error --fail --max-time 30 "$BASE_URL/health"; then
               echo
               exit 0
             fi
-            echo "Attempt $attempt failed, trying again in 15 seconds"
-            sleep 15
+            echo "Attempt $attempt of 8 failed"
+            if [ "$attempt" -lt 8 ]; then
+              sleep 15
+            fi
           done
-          echo "The service did not answer in time" >&2
+          echo "The service did not answer in 6 minutes. Look at its logs on Render: it cannot start when the Weaviate cluster is suspended or deleted." >&2
           exit 1
 
       - name: Load a page (reads and writes the vector database)
